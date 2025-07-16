@@ -25,7 +25,7 @@ export const Footer = () => {
               className="object-cover rounded-xl shadow-2xl"
             />
             </h3>
-            <p className="text-gray-400">Nigeria's premier esports community platform.</p>
+            <p className="text-gray-400">Nigeria premier esports community platform.</p>
           </div>
           <div>
             <h4 className="font-semibold mb-4">Games</h4>

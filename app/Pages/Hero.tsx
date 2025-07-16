@@ -71,7 +71,7 @@ export const Hero = () => {
             </span>
             </h1>
             <p className="text-xl mb-8 text-gray-300">
-              Nigeria's premier destination for esports, gaming events, and community. Compete, stream, and rise to glory with fellow Naija gamers.
+              Nigeria premier destination for esports, gaming events, and community. Compete, stream, and rise to glory with fellow Naija gamers.
             </p>
             <div className="mb-8">
               <motion.button 

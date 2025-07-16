@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Trophy, Users, Plus, X, Upload, Save, Edit, Trash2, Play } from 'lucide-react';
+import { Trophy, Users, Plus, X, Upload, Save,  Trash2, Play } from 'lucide-react';
 
 
 type Team = {
@@ -72,24 +72,24 @@ export const TournamentSection = () => {
     }
   };
 
-  const handlePlayerChange = (index, value) => {
+  const handlePlayerChange = (index: number, value: string) => {
     const newPlayers = [...currentTeam.players];
     newPlayers[index] = value;
     setCurrentTeam({ ...currentTeam, players: newPlayers });
   };
 
-  const handleLogoUpload = (event) => {
-    const file = event.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setCurrentTeam({ ...currentTeam, logo: e.target.result });
-      };
-      reader.readAsDataURL(file);
-    }
-  };
+  const handleLogoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    const reader = new FileReader();
+    reader.onload = (e) => {
+            setCurrentTeam({ ...currentTeam, logo: e.target?.result });
+          };
+          reader.readAsDataURL(file);
+        };
 
-  const deleteTeam = (teamId) => {
+  const deleteTeam = (teamId: number) => {
     setTeams(teams.filter(team => team.id !== teamId));
   };
 
@@ -113,7 +113,7 @@ export const TournamentSection = () => {
     setShowBracket(true);
   };
 
-  const generateRounds = (teamList) => {
+  const generateRounds = (teamList: Team[]) => {
     const rounds = [];
     let currentRound = [];
     
@@ -176,7 +176,7 @@ export const TournamentSection = () => {
       title: "Team Management", 
       description: "Create and manage teams with player rosters",
       icon: <Users className="w-6 h-6" />
-    },
+    }
   ];
 
   return (

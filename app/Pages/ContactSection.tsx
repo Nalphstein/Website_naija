@@ -14,7 +14,7 @@ export const ContactSection = () => {
         >
           <h2 className="font-orbitron text-4xl font-bold mb-6">Ready to Join the League?</h2>
           <p className="text-xl mb-8 max-w-2xl mx-auto">
-            Become part of Nigeria's fastest-growing esports community. Compete in tournaments, build your team, and rise to glory.
+            Become part of Nigeria fastest-growing esports community. Compete in tournaments, build your team, and rise to glory.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <motion.button 

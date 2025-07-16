@@ -118,7 +118,7 @@ export const CommunityPage = () => {
           className="text-center mb-16"
         >
           <h2 className="font-orbitron text-4xl font-bold mb-4 text-green-400">Featured Games</h2>
-          <p className="text-xl text-gray-400">Dominate the battlefield in Nigeria's favorite esports titles</p>
+          {/* <p className="text-xl text-gray-400">Dominate the battlefield in Nigerias favorite esports titles</p> */}
         </motion.div>
         
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
