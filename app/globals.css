@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 3.9%;
+    --dark-bg: 10 10% 2.7%;
+    --dark-100: 10 10% 1.2%;
+    --dark-200: 10 10% 1.5%;
+    --dark-300: 10 10% 1.8%;
+  }
+  
+  .dark {
+   --background: hsl(var(--dark-bg));
+   --foreground: hsl(var(--foreground));
+ }
+ @layer components {
+   .btn {
+     @apply rounded-lg px-4 py-2 font-semibold hover:opacity-90 transition-all duration-200;
+   }
+ }
+ body {
+   color: var(--foreground);
+   background: var(--background);
+   @apply text-white bg-black;
+ }
+} 
+
+
+/* .card {
+  @apply bg-dark-100 rounded-lg p-6 shadow-lg hover:shadow-xl transition-all duration-300;
+} */
+
+body {
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+
+.bg-world-theme {
+    background-image: url('/image 65.png');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+.bg-featured-theme {
+  background-image: url('/image 64.png');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
