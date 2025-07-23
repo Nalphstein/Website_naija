@@ -1,7 +1,8 @@
 // firebase.ts
 import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
-// import { getFirestore } from "firebase/firestore";
+import { getAnalytics, isSupported as analyticsIsSupported } from "firebase/analytics";
+import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import {getStorage, ref, uploadBytes, getDownloadURL} from 'firebase/storage';
 
 const firebaseConfig = {
     apiKey: "AIzaSyAD-zFuwNGPXDVaGExT3QBRfwrBcoJcvio",
@@ -14,5 +15,18 @@ const firebaseConfig = {
   };
 
 const app = initializeApp(firebaseConfig);
-export const analytics = getAnalytics(app);
-// export const db = getFirestore(app);
+
+// SSR-safe analytics export
+export let analytics: ReturnType<typeof getAnalytics> | undefined = undefined;
+if (typeof window !== "undefined") {
+  analyticsIsSupported().then((supported) => {
+    if (supported) {
+      analytics = getAnalytics(app);
+    }
+  });
+}
+
+export const db = getFirestore(app);
+export const storage = getStorage(app);
+
+export default app;
