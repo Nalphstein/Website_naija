@@ -10,6 +10,7 @@ import {
   deleteTeam as deleteTeamService, 
   uploadTeamLogo 
 } from '../services/teamservice';
+import { getTournament,updateTournament, TournamentType } from '../services/tournamentService';
 import HomePage from '../components/pages/Tournament/HomePage';
 import TeamManagementPage from '../components/pages/Tournament/TeamManagementPage';
 import LiveScoringPage from '../components/pages/Tournament/LiveScoringPage';
@@ -36,8 +37,9 @@ type Tournament = {
 export const TournamentSection = () => {
   const [currentPage, setCurrentPage] = useState('home');
   const [teams, setTeams] = useState<Team[]>([]);
-  const [tournament, setTournament] = useState<Tournament | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [tournament, setTournament] = useState<TournamentType | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [tournamentLoading, setTournamentLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingTeam, setEditingTeam] = useState<Team | null>(null);
   const [currentTeam, setCurrentTeam] = useState<Omit<Team, 'id'>>({
@@ -50,23 +52,45 @@ export const TournamentSection = () => {
   });
 
   useEffect(() => {
-    const fetchTeams = async () => {
-      setLoading(true);
+    const loadInitialData = async () => {
       try {
-        const fetchedTeams = await getAllTeams();
-        setTeams(fetchedTeams);
+        setLoading(true);
+        const [loadedTeams, savedTournament] = await Promise.all([
+          getAllTeams(),
+          getTournament('current')
+        ]);
+        
+        setTeams(loadedTeams);
+        if (savedTournament) {
+          setTournament(savedTournament);
+        }
       } catch (error) {
-        console.error('Error fetching teams:', error);
-        alert('Error loading teams. Please refresh the page.');
+        console.error('Error loading data:', error);
       } finally {
         setLoading(false);
+        setTournamentLoading(false);
       }
     };
-    
-    fetchTeams();
-  }, []); 
 
-  // Missing functions
+    loadInitialData();
+  }, []);
+
+  useEffect(() => {
+    if (!tournamentLoading && tournament) {
+      const saveCurrentTournament = async () => {
+        try {
+          if (tournament.id) {
+            await updateTournament(tournament.id, tournament);
+          } 
+        } catch (error) {
+          console.error('Error saving tournament:', error);
+        }
+      };
+      
+      saveCurrentTournament();
+    }
+  }, [tournament, tournamentLoading]);
+
   const startEditingTeam = (team: Team) => {
     setEditingTeam(team);
     setCurrentTeam({
@@ -86,61 +110,75 @@ export const TournamentSection = () => {
   };
 
   const handleUpdateTeam = async () => {
-  if (editingTeam && currentTeam.name && currentTeam.players.some(p => p.trim())) {
-    setLoading(true);
-    try {
-      await updateTeam(editingTeam.id, {
-        ...currentTeam,
-        players: currentTeam.players.filter(p => p.trim()),
-      });
-      const fetchedTeams = await getAllTeams();
-      setTeams(fetchedTeams);
-      setEditingTeam(null);
-      setCurrentTeam({ name: '', logo: null, players: ['', '', '', '', ''], wins: 0, losses: 0, points: 0 });
-    } catch (error) {
-      alert('Error updating team. Please try again.');
-    } finally {
-      setLoading(false);
+    if (editingTeam && currentTeam.name && currentTeam.players.some(p => p.trim())) {
+      setLoading(true);
+      try {
+        await updateTeam(editingTeam.id, {
+          ...currentTeam,
+          players: currentTeam.players.filter(p => p.trim()),
+        });
+        const fetchedTeams = await getAllTeams();
+        setTeams(fetchedTeams);
+        setEditingTeam(null);
+        setCurrentTeam({ name: '', logo: null, players: ['', '', '', '', ''], wins: 0, losses: 0, points: 0 });
+      } catch (error) {
+        alert('Error updating team. Please try again.');
+      } finally {
+        setLoading(false);
+      }
     }
-  }
-};
+  };
 
-  const generateBracket = () => {
-    // Simple bracket generation logic (needs implementation)
-    alert("Bracket generation would be implemented here");
-    setTournament({
-      id: '1',
+  const handleGenerateBracket = async () => {
+    if (teams.length < 2) {
+      alert('You need at least 2 teams to generate a bracket');
+      return;
+    }
+    
+    const newTournament: TournamentType = {
+      id: 'current',
+      name: 'Tournament ' + new Date().toLocaleDateString(),
       teams,
       rounds: [],
       status: 'active',
+      currentWeek: 1,
       createdAt: new Date().toISOString()
-    });
+    };
+    
+    setTournament(newTournament);
+    
+    // If you want to save to Firebase
+    try {
+      await updateTournament('current', newTournament);
+    } catch (error) {
+      console.error('Error saving tournament:', error);
+    }
   };
 
   const handleCreateTeam = async () => {
-  if (currentTeam.name && currentTeam.players.some(p => p.trim())) {
-    setLoading(true);
-    try {
-      await createTeam({
-        name: currentTeam.name,
-        logo: currentTeam.logo,
-        players: currentTeam.players.filter(p => p.trim()),
-        wins: 0,
-        losses: 0,
-        points: 0,
-      });
-      const fetchedTeams = await getAllTeams();
-      setTeams(fetchedTeams);
-      setCurrentTeam({ name: '', logo: null, players: ['', '', '', '', ''], wins: 0, losses: 0, points: 0 });
-      setShowCreateModal(false);
-      setCurrentPage('team-management');
-    } catch (error) {
-      alert('Error creating team. Please try again.');
-    } finally {
-      setLoading(false);
+    if (currentTeam.name && currentTeam.players.some(p => p.trim())) {
+      setLoading(true);
+      try {
+        await createTeam({
+          name: currentTeam.name,
+          logo: currentTeam.logo,
+          players: currentTeam.players.filter(p => p.trim()),
+          wins: 0,
+          losses: 0,
+          points: 0,
+        });
+        const fetchedTeams = await getAllTeams();
+        setTeams(fetchedTeams);
+        setCurrentTeam({ name: '', logo: null, players: ['', '', '', '', ''], wins: 0, losses: 0, points: 0 });
+        setShowCreateModal(false);
+        setCurrentPage('team-management');
+      } catch (error) {
+        alert('Error creating team. Please try again.');
+      } finally {
+        setLoading(false);
+      }
     }
-  }
-};
+  };
 
   const deleteTeam = async (teamId: string) => {
     if (window.confirm('Are you sure you want to delete this team?')) {
@@ -159,12 +197,36 @@ export const TournamentSection = () => {
   const handleLogoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (!files || files.length === 0) return;
+    
     const file = files[0];
-    const logoUrl = await uploadTeamLogo(file);
-    setCurrentTeam({ ...currentTeam, logo: logoUrl });
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file (JPEG, PNG, etc.)');
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      const logoUrl = await uploadTeamLogo(file, currentTeam.name || 'team');
+      setCurrentTeam({ ...currentTeam, logo: logoUrl });
+    } catch (error) {
+      console.error("Error uploading logo:", error);
+      alert('Failed to upload logo. Please try again.');
+    } finally {
+      setLoading(false);
+      // Reset the file input
+      event.target.value = '';
+    }
   };
 
   const renderCurrentPage = () => {
+    if (loading || tournamentLoading) {
+      return (
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-green-500"></div>
+        </div>
+      );
+    }
+
     switch(currentPage) {
       case 'team-management':
         return <TeamManagementPage 
@@ -180,13 +242,16 @@ export const TournamentSection = () => {
           setCurrentPage={setCurrentPage}
         />;
       case 'bracket':
+        console.log("Tournament object:", tournament);
+        console.log("Tournament ID:", tournament?.id);
         return <BracketPage 
           teams={teams}
           setTeams={setTeams}
           tournament={tournament}
           setTournament={setTournament}
-          generateBracket={generateBracket}
+          generateBracket={handleGenerateBracket}
           setCurrentPage={setCurrentPage}
+          
         />;
       default:
         return <HomePage 
@@ -257,16 +322,44 @@ export const TournamentSection = () => {
                       onChange={handleLogoUpload}
                       className="hidden"
                       id="logo-upload"
+                      disabled={loading}
                     />
                     <label
                       htmlFor="logo-upload"
-                      className="flex items-center px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg cursor-pointer hover:bg-gray-600 transition-colors"
+                      className={`flex items-center px-4 py-2 border rounded-lg cursor-pointer transition-colors ${
+                        loading 
+                          ? 'bg-gray-600 border-gray-500 cursor-not-allowed' 
+                          : 'bg-gray-700 border-gray-600 hover:bg-gray-600'
+                      }`}
                     >
-                      <Upload className="w-4 h-4 mr-2" />
-                      Upload Logo
+                      {loading ? (
+                        <span className="flex items-center">
+                          <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Uploading...
+                        </span>
+                      ) : (
+                        <>
+                          <Upload className="w-4 h-4 mr-2" />
+                          Upload Logo
+                        </>
+                      )}
                     </label>
                     {currentTeam.logo && (
-                      <img src={currentTeam.logo} alt="Logo preview" className="w-10 h-10 rounded-full object-cover" />
+                      <div className="relative">
+                        <img 
+                          src={currentTeam.logo} 
+                          alt="Logo preview" 
+                          className="w-10 h-10 rounded-full object-cover border-2 border-gray-600"
+                        />
+                        {loading && (
+                          <div className="absolute inset-0 bg-black bg-opacity-50 rounded-full flex items-center justify-center">
+                            <div className="w-5 h-5 border-2 border-t-transparent border-white rounded-full animate-spin"></div>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>

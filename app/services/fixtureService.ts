@@ -8,6 +8,8 @@ import {
   where,
   DocumentData,
   QueryDocumentSnapshot,
+  onSnapshot,
+  writeBatch,
 } from 'firebase/firestore';
 
 export type FixtureScore = {
@@ -29,6 +31,35 @@ export async function saveFixtureScore({ tournamentId, fixtureKey, homeScore, aw
     homeScore,
     awayScore,
     updatedAt: new Date().toISOString(),
+  });
+}
+
+// Add to your fixtureService.ts
+export async function saveMultipleFixtureScores(tournamentId: string, scores: Array<{
+  fixtureKey: string;
+  homeScore: number;
+  awayScore: number;
+}>) {
+  // Batch save multiple scores for better performance
+  const batch = writeBatch(db);
+  
+  scores.forEach(({ fixtureKey, homeScore, awayScore }) => {
+    const docRef = doc(db, 'tournaments', tournamentId, 'fixtures', fixtureKey);
+    batch.set(docRef, { homeScore, awayScore, savedAt: new Date() });
+  });
+  
+  await batch.commit();
+}
+
+// Add real-time score updates
+export function subscribeToFixtureScores(tournamentId: string, callback: (scores: any) => void) {
+  const scoresRef = collection(db, 'tournaments', tournamentId, 'fixtures');
+  return onSnapshot(scoresRef, (snapshot) => {
+    const scores = {};
+    snapshot.forEach(doc => {
+      scores[doc.id] = doc.data();
+    });
+    callback(scores);
   });
 }
 
