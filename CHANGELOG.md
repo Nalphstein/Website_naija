@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### In Progress
 - **Component Architecture Refactoring**
   - Restructured BracketPage component into smaller, focused components
+  - Extracted `WeekNavigation`, `FixtureList`, `FixtureMatchCard`, `WeekStatistics`, `TournamentOverview`, and `PlayoffBracket` components from `BracketPage.tsx` for improved modularity and maintainability.
+  - Refactored main tournament logic to delegate UI and state management to these new components.
+  - Enhanced debugging by adding `console.log` statements for fixture score persistence and tournament state restoration.
+  - Planning to further improve tournament state persistence using a hybrid approach with `localStorage` (for quick access/caching) and Firestore (as the source of truth).
   - Fixed circular dependencies in component imports
   - Standardized export/import patterns across components
   - Resolved TypeScript module resolution issues
@@ -42,6 +46,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Enhanced component documentation and prop types
 
 ### Added
+- **Live Scoring & Standings Page**
+  - Introduced `LiveScoringPage.tsx` to display real-time team standings and statistics.
+  - Features dynamic leaderboard with ranking icons (🥇🥈🥉), color-coded highlights for top teams, and sortable stats (points, wins, losses).
+  - Includes summary cards for current leader, most wins, and total points.
+  - Enhanced UI with responsive design and improved visual clarity for rankings and stats.
 - **Type Definitions**
   - Added missing properties to Fixture interface
   - Enhanced Match interface with additional properties
@@ -57,5 +66,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Document Cloudinary setup and usage in project README
   - Add image validation and error handling improvements for uploads
   - Review security of client-side upload presets and consider server-side signature if needed
+- **State Persistence and Debugging**
+  - Implement robust restoration of tournament object and ID after navigation using `localStorage` and Firestore.
+  - Ensure fixture scores and tournament state are reliably loaded and saved across navigation and refreshes.
+  - Continue extracting and modularizing any remaining logic from `BracketPage.tsx`.
 
 [Unreleased]: https://github.com/your-repo/compare/v1.0.0...HEAD

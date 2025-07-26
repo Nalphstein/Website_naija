@@ -7,6 +7,8 @@ import CommunityPage from "./Pages/CommunityPage";
 import TournamentSection from "./Pages/TournamentSection";
 import ContactSection from "./Pages/ContactSection";
 import SocialHub from "./Pages/SocialHub";
+import { ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 // import { Footer } from "@/app/components/layout/Footer";
 // import Footer from "@Footer/components/layout/Footer";
 
@@ -15,7 +17,7 @@ import SocialHub from "./Pages/SocialHub";
 
 export default function Home() {
   return (
-    <main className="bg-black min-h-screen mx-4 my-2">
+    <main className="bg-black min-h-screen mx-1 my-2 overflow-hidden">
       <div className="">
         <Floatingnavbar/>
         <Hero />
@@ -38,6 +40,18 @@ export default function Home() {
           <Footer />
         </div>
       </div>
+       <ToastContainer
+        position="top-right"
+        autoClose={5000}
+        hideProgressBar={false}
+        newestOnTop={false}
+        closeOnClick
+        rtl={false}
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+        theme="dark" // Since your app has a dark theme
+      />
     </main>
   )
 }

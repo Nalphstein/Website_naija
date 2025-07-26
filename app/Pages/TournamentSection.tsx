@@ -10,7 +10,7 @@ import {
   deleteTeam as deleteTeamService, 
   uploadTeamLogo 
 } from '../services/teamservice';
-import { getTournament,updateTournament, TournamentType } from '../services/tournamentService';
+import { getTournament, updateTournament, TournamentType, getCurrentTournamentId, setCurrentTournamentId, clearCurrentTournament } from '../services/tournamentService';
 import HomePage from '../components/pages/Tournament/HomePage';
 import TeamManagementPage from '../components/pages/Tournament/TeamManagementPage';
 import LiveScoringPage from '../components/pages/Tournament/LiveScoringPage';
@@ -45,7 +45,7 @@ export const TournamentSection = () => {
   const [currentTeam, setCurrentTeam] = useState<Omit<Team, 'id'>>({
     name: '',
     logo: null,
-    players: ['', '', '', '', '',''],
+    players: ['', '', '', '', '','',],
     wins: 0,
     losses: 0,
     points: 0,
@@ -55,14 +55,19 @@ export const TournamentSection = () => {
     const loadInitialData = async () => {
       try {
         setLoading(true);
-        const [loadedTeams, savedTournament] = await Promise.all([
-          getAllTeams(),
-          getTournament('current')
-        ]);
-        
+        // Try to restore tournament ID from localStorage
+        const savedTournamentId = getCurrentTournamentId();
+        let savedTournament = null;
+        if (savedTournamentId) {
+          savedTournament = await getTournament(savedTournamentId);
+        } else {
+          savedTournament = await getTournament('current');
+        }
+        const loadedTeams = await getAllTeams();
         setTeams(loadedTeams);
         if (savedTournament) {
           setTournament(savedTournament);
+          setCurrentTournamentId(savedTournament.id); // Persist to localStorage
         }
       } catch (error) {
         console.error('Error loading data:', error);
@@ -134,7 +139,6 @@ export const TournamentSection = () => {
       alert('You need at least 2 teams to generate a bracket');
       return;
     }
-    
     const newTournament: TournamentType = {
       id: 'current',
       name: 'Tournament ' + new Date().toLocaleDateString(),
@@ -144,10 +148,8 @@ export const TournamentSection = () => {
       currentWeek: 1,
       createdAt: new Date().toISOString()
     };
-    
     setTournament(newTournament);
-    
-    // If you want to save to Firebase
+    setCurrentTournamentId(newTournament.id); // Persist to localStorage
     try {
       await updateTournament('current', newTournament);
     } catch (error) {
@@ -410,3 +412,4 @@ export const TournamentSection = () => {
 };
 
 export default TournamentSection;
+

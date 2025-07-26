@@ -52,11 +52,14 @@ const TeamManagementPage: React.FC<TeamManagementPageProps> = ({
             <div>
               <h3 className="text-xl font-bold text-white">{team.name}</h3>
               <div className="flex space-x-2 mt-2">
-                {team.players.map((player, idx) => (
+                {team.players.slice(0,2).map((player, idx) => (
                   <span key={idx} className="bg-gray-700 text-green-400 px-2 py-1 rounded text-xs font-semibold">
                     {player}
                   </span>
                 ))}
+                 {team.players.length > 2 && (
+                  <p className="text-gray-400 text-sm">... and {team.players.length - 2} more</p>
+                )}
               </div>
             </div>
           </div>

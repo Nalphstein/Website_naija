@@ -8,7 +8,10 @@ import WeekNavigation from "./WeekNavigation";
 import FixtureList from "./FixtureList";
 import WeekStatistics from "./WeekStatistics";
 import TournamentOverview from "./TournamentOverview";
+
 import PlayoffBracket from "./PlayoffBracket";
+
+import { toast } from 'react-toastify';
 
 interface Fixture {
   round: number;
@@ -145,6 +148,8 @@ const BracketPage: React.FC<BracketPageProps> = ({
       }
       
       try {
+        toast.info('Loading tournament data...', { autoClose: 2000 });
+        
         const scores = await getFixtureScores(tournament.id);
         console.log("Loaded scores from Firebase:", scores);
         
@@ -158,6 +163,7 @@ const BracketPage: React.FC<BracketPageProps> = ({
         }, {} as typeof fixtureScores);
         
         setFixtureScores(scoresWithCompletion);
+        console.log("[BracketPage] Fixture scores after loading:", scoresWithCompletion);
         
         // Auto-advance to the appropriate week based on completed matches
         const completedFixtureKeys = Object.keys(scoresWithCompletion);
@@ -182,10 +188,14 @@ const BracketPage: React.FC<BracketPageProps> = ({
           }
         }
         
+        toast.success('Tournament data loaded successfully!', { autoClose: 3000 });
+        
       } catch (error) {
         console.error("Error loading fixture scores:", error);
-        // Show user-friendly error
-        alert("Failed to load tournament data. Please refresh the page.");
+        // toast.error("Failed to load tournament data. Please refresh the page.", { 
+        //   autoClose: 5000,
+        //   position: "top-center"
+        // });
       } finally {
         setScoresLoaded(true);
       }
@@ -236,14 +246,18 @@ const BracketPage: React.FC<BracketPageProps> = ({
   }
 
   function handleScoreChange(fixtureKey: string, side: 'home' | 'away', value: number) {
-    setFixtureScores(prev => ({
-      ...prev,
-      [fixtureKey]: {
-        homeScore: side === 'home' ? value : prev[fixtureKey]?.homeScore ?? 0,
-        awayScore: side === 'away' ? value : prev[fixtureKey]?.awayScore ?? 0,
-        completed: false,
-      },
-    }));
+    setFixtureScores(prev => {
+      const updated = {
+        ...prev,
+        [fixtureKey]: {
+          homeScore: side === 'home' ? value : prev[fixtureKey]?.homeScore ?? 0,
+          awayScore: side === 'away' ? value : prev[fixtureKey]?.awayScore ?? 0,
+          completed: false,
+        },
+      };
+      console.log("[BracketPage] Fixture scores after change:", updated);
+      return updated;
+    });
   }
 
   // Enhanced save with optimistic updates and error recovery
@@ -258,19 +272,24 @@ const BracketPage: React.FC<BracketPageProps> = ({
     if (score === undefined) return;
     
     if (score.homeScore === undefined || score.awayScore === undefined) {
-      alert('Please enter both scores');
+      toast.error('Please enter both scores before saving', { autoClose: 3000 });
       return;
     }
 
     // Validate scores are non-negative
     if (score.homeScore < 0 || score.awayScore < 0) {
-      alert('Scores cannot be negative');
+      toast.error('Scores cannot be negative', { autoClose: 3000 });
       return;
     }
     
     // Store original state for rollback
     const originalTeams = teams.map(team => ({ ...team }));
     const originalFixtureScores = { ...fixtureScores };
+    
+    // Show saving toast
+    const savingToastId = toast.loading('Saving match result...', { 
+      position: "top-center" 
+    });
     
     // Optimistic update - show completed state immediately
     setFixtureScores(prev => ({
@@ -343,13 +362,23 @@ const BracketPage: React.FC<BracketPageProps> = ({
           
           console.log('Score saved successfully');
           
-          // Show success feedback (you can replace with toast)
+          // Update the loading toast to success
+          toast.update(savingToastId, {
+            render: `Match saved! ${home.name} ${score.homeScore} - ${score.awayScore} ${away.name}`,
+            type: "success",
+            isLoading: false,
+            autoClose: 3000,
+          });
+          
+          // Check if week is completed and show additional notification
           const weekCompleted = isWeekCompleted(fixture.week);
           if (weekCompleted && fixture.week < totalWeeks) {
-            // Week completed notification
             setTimeout(() => {
-              alert(`Week ${fixture.week} completed! Week ${fixture.week + 1} is now available.`);
-            }, 500);
+              toast.success(`🎉 Week ${fixture.week} completed! Week ${fixture.week + 1} is now available.`, {
+                autoClose: 5000,
+                position: "top-center"
+              });
+            }, 1000);
           }
           
           break; // Success, exit retry loop
@@ -360,6 +389,14 @@ const BracketPage: React.FC<BracketPageProps> = ({
             throw retryError; // Re-throw after max retries
           }
           console.warn(`Save attempt ${retryCount} failed, retrying...`, retryError);
+          
+          // Update toast with retry info
+          toast.update(savingToastId, {
+            render: `Retry attempt ${retryCount}/3...`,
+            type: "info",
+            isLoading: true,
+          });
+          
           await new Promise(resolve => setTimeout(resolve, 1000 * retryCount)); // Exponential backoff
         }
       }
@@ -371,9 +408,14 @@ const BracketPage: React.FC<BracketPageProps> = ({
       setTeams(originalTeams);
       setFixtureScores(originalFixtureScores);
       
-      // Show detailed error message
+      // Update the loading toast to error
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      alert(`Failed to save score: ${errorMessage}. Please check your connection and try again.`);
+      toast.update(savingToastId, {
+        render: `Failed to save: ${errorMessage}. Please try again.`,
+        type: "error",
+        isLoading: false,
+        autoClose: 5000,
+      });
       
     } finally {
       setIsSaving(false);
@@ -413,8 +455,13 @@ const BracketPage: React.FC<BracketPageProps> = ({
       
       if (typeof match.score1 === 'number' && typeof match.score2 === 'number' && match.status !== 'completed') {
         let winner = null;
-        if (match.score1 > match.score2) winner = match.team1;
-        else if (match.score2 > match.score1) winner = match.team2;
+        if (match.score1 > match.score2) {
+          winner = match.team1;
+          toast.success(`${match.team1?.name} advances to the next round!`, { autoClose: 4000 });
+        } else if (match.score2 > match.score1) {
+          winner = match.team2;
+          toast.success(`${match.team2?.name} advances to the next round!`, { autoClose: 4000 });
+        }
         
         if (winner) {
           match.status = 'completed';
@@ -442,6 +489,25 @@ const BracketPage: React.FC<BracketPageProps> = ({
             });
           }
           rounds.push(nextRound);
+          
+          // Show round completion notification
+          setTimeout(() => {
+            toast.info(`Round ${roundIdx + 1} completed! Next round is ready.`, {
+              autoClose: 4000,
+              position: "top-center"
+            });
+          }, 500);
+        }
+      } else if (allDone && isLastRound) {
+        // Tournament completed
+        const champion = currentRound[0]?.winner;
+        if (champion) {
+          setTimeout(() => {
+            toast.success(`🏆 Tournament Champion: ${champion.name}! 🏆`, {
+              autoClose: 6000,
+              position: "top-center",
+            });
+          }, 1000);
         }
       }
       
@@ -452,12 +518,15 @@ const BracketPage: React.FC<BracketPageProps> = ({
   function handleGeneratePlayoffBracket() {
     if (playoffSize < 2 || playoffSize > teams.length) {
       setPlayoffError('Invalid number of playoff teams');
+      toast.error(`Playoff size must be between 2 and ${teams.length} teams`, { autoClose: 3000 });
       return;
     }
+    
     setPlayoffError(null);
     const sorted = [...teams].sort((a, b) => b.points - a.points);
     const qualified = sorted.slice(0, playoffSize);
     const matches = [];
+    
     for (let i = 0; i < playoffSize / 2; i++) {
       matches.push({
         team1: qualified[i],
@@ -468,6 +537,7 @@ const BracketPage: React.FC<BracketPageProps> = ({
         score2: 0,
       });
     }
+    
     setTournament({
       id: 'playoffs',
       teams: qualified,
@@ -475,49 +545,64 @@ const BracketPage: React.FC<BracketPageProps> = ({
       status: 'active',
       createdAt: new Date().toISOString(),
     });
+    
+    toast.success(`Playoff bracket generated with ${playoffSize} teams!`, { autoClose: 3000 });
   }
 
   function handleResetPlayoffBracket() {
     setTournament(null);
+    toast.info('Playoff bracket has been reset', { autoClose: 2000 });
   }
 
   const availableWeeks = getAvailableWeeks();
 
   return (
-    <div className="min-h-screen bg-gray-900 p-6">
+    <div className="min-h-screen bg-gradient-to-b from-gray-900 to-gray-800 p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h2 className="text-3xl font-bold text-white mb-4">Tournament Bracket</h2>
-            <div className="flex space-x-2">
-              <button
-                className={`flex items-center space-x-2 px-6 py-3 rounded-lg font-semibold transition-colors ${
-                  tab === 'fixtures' ? 'bg-green-400 text-black' : 'bg-gray-700 text-white hover:bg-gray-600'
-                }`}
-                onClick={() => setTab('fixtures')}
-              >
-                <Calendar className="w-5 h-5" />
-                <span>Regular Season Fixtures</span>
-              </button>
-              <button
-                className={`flex items-center space-x-2 px-6 py-3 rounded-lg font-semibold transition-colors ${
-                  tab === 'playoffs' ? 'bg-green-400 text-black' : 'bg-gray-700 text-white hover:bg-gray-600'
-                }`}
-                onClick={() => setTab('playoffs')}
-              >
-                <Trophy className="w-5 h-5" />
-                <span>Playoffs</span>
-              </button>
-            </div>
-          </div>
-          <button
-            onClick={() => setCurrentPage('home')}
-            className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors"
-          >
-            Back to Home
-          </button>
-        </div>
+    <div className="flex flex-col mb-8 bg-gray-800 p-4 md:p-6 rounded-xl shadow-lg">
+  <div className="w-full">
+    <h2 className="text-3xl md:text-4xl font-bold text-white mb-4 text-center md:text-left bg-clip-text text-transparent bg-gradient-to-r from-green-400 to-blue-500"></h2>
+    
+    {/* Flex container for tabs and back button - responsive layout */}
+    <div className="flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0">
+      
+      {/* Tab buttons container */}
+      <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2 w-full md:w-auto">
+        <button
+          className={`flex items-center justify-center space-x-2 px-4 md:px-6 py-3 rounded-lg font-semibold transition-colors w-full sm:w-auto ${
+            tab === 'fixtures' ? 'bg-green-400 text-black' : 'bg-gray-700 text-white hover:bg-gray-600'
+          }`}
+          onClick={() => setTab('fixtures')}
+        >
+          <Calendar className="w-5 h-5" />
+          <span className="text-sm md:text-base">Regular Season</span>
+        </button>
+        <button
+          className={`flex items-center justify-center space-x-2 px-4 md:px-6 py-3 rounded-lg font-semibold transition-colors w-full sm:w-auto ${
+            tab === 'playoffs' ? 'bg-green-400 text-black' : 'bg-gray-700 text-white hover:bg-gray-600'
+          }`}
+          onClick={() => setTab('playoffs')}
+        >
+          <Trophy className="w-5 h-5" />
+          <span className="text-sm md:text-base">Playoffs</span>
+        </button>
+      </div>
+      
+      {/* Back to Home button */}
+      <button
+        onClick={() => {
+          setCurrentPage('home');
+          toast.info('Returning to home page...', { autoClose: 1500 });
+        }}
+        className="w-full md:w-auto bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors text-sm md:text-base"
+      >
+        Back to Home
+      </button>
+      
+    </div>
+  </div>
+</div>
 
         {tab === 'fixtures' && (
           <div>
@@ -553,65 +638,65 @@ const BracketPage: React.FC<BracketPageProps> = ({
                         </div>
 
                         {/* Teams Display */}
-                        <div className="flex items-center justify-between mb-6">
-                          {/* Home Team */}
-                          <div className="flex flex-col items-center space-y-2 flex-1">
-                            <div className="w-16 h-16 bg-gray-700 rounded-lg flex items-center justify-center">
-                              {fixture.home.logo ? (
-                                <img src={fixture.home.logo} alt={fixture.home.name} className="w-12 h-12 object-contain" />
-                              ) : (
-                                <div className="text-2xl">🏆</div>
-                              )}
-                            </div>
-                            <span className="text-white font-semibold text-sm text-center">
-                              {fixture.home.name}
-                            </span>
-                          </div>
-
-                          {/* VS and Score */}
-                          <div className="flex flex-col items-center space-y-2 px-4">
-                            <span className="text-gray-400 text-sm">VS</span>
-                            {isCompleted ? (
-                              <div className="text-2xl font-bold text-white">
-                                {score.homeScore} - {score.awayScore}
-                              </div>
-                            ) : (
-                              <div className="flex items-center space-x-2">
-                                <input
-                                  type="number"
-                                  min="0"
-                                  className="w-12 h-8 bg-gray-700 text-white text-center rounded"
-                                  value={score.homeScore}
-                                  onChange={(e) => handleScoreChange(fixtureKey, 'home', Number(e.target.value))}
-                                  placeholder="0"
-                                />
-                                <span className="text-gray-400">-</span>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  className="w-12 h-8 bg-gray-700 text-white text-center rounded"
-                                  value={score.awayScore}
-                                  onChange={(e) => handleScoreChange(fixtureKey, 'away', Number(e.target.value))}
-                                  placeholder="0"
-                                />
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Away Team */}
-                          <div className="flex flex-col items-center space-y-2 flex-1">
-                            <div className="w-16 h-16 bg-gray-700 rounded-lg flex items-center justify-center">
-                              {fixture.away.logo ? (
-                                <img src={fixture.away.logo} alt={fixture.away.name} className="w-12 h-12 object-contain" />
-                              ) : (
-                                <div className="text-2xl">🏆</div>
-                              )}
-                            </div>
-                            <span className="text-white font-semibold text-sm text-center">
-                              {fixture.away.name}
-                            </span>
-                          </div>
-                        </div>
+                       <div className="flex flex-col lg:flex-row items-center justify-between mb-6 p-4">
+  {/* Home Team */}
+  <div className="flex flex-col items-center space-y-2 w-full lg:w-1/3 mb-4 lg:mb-0">
+    <div className="w-16 h-16 bg-gray-700 rounded-lg flex items-center justify-center">
+      {fixture.home.logo ? (
+        <img src={fixture.home.logo} alt={fixture.home.name} className="w-12 h-12 object-contain" />
+      ) : (
+        <div className="text-2xl">🏆</div>
+      )}
+    </div>
+    <span className="text-white font-semibold text-sm text-center">
+      {fixture.home.name}
+    </span>
+  </div>
+   
+  {/* VS and Score */}
+  <div className="flex flex-col items-center space-y-2 px-4 my-4 lg:my-0 w-full lg:w-1/3">
+    <span className="text-gray-400 text-sm">VS</span>
+    {isCompleted ? (
+      <div className="text-2xl font-bold text-white">
+        {score.homeScore} - {score.awayScore}
+      </div>
+    ) : (
+      <div className="flex items-center space-x-2">
+        <input
+          type="number"
+          min="0"
+          className="w-12 h-8 bg-gray-700 text-white text-center rounded"
+          value={score.homeScore}
+          onChange={(e) => handleScoreChange(fixtureKey, 'home', Number(e.target.value))}
+          placeholder="0"
+        />
+        <span className="text-gray-400">-</span>
+        <input
+          type="number"
+          min="0"
+          className="w-12 h-8 bg-gray-700 text-white text-center rounded"
+          value={score.awayScore}
+          onChange={(e) => handleScoreChange(fixtureKey, 'away', Number(e.target.value))}
+          placeholder="0"
+        />
+      </div>
+    )}
+  </div>
+   
+  {/* Away Team */}
+  <div className="flex flex-col items-center space-y-2 w-full lg:w-1/3 mt-4 lg:mt-0">
+    <div className="w-16 h-16 bg-gray-700 rounded-lg flex items-center justify-center">
+      {fixture.away.logo ? (
+        <img src={fixture.away.logo} alt={fixture.away.name} className="w-12 h-12 object-contain" />
+      ) : (
+        <div className="text-2xl">🏆</div>
+      )}
+    </div>
+    <span className="text-white font-semibold text-sm text-center">
+      {fixture.away.name}
+    </span>
+  </div>
+</div>
 
                         {/* Save Button */}
                         {!isCompleted && (
