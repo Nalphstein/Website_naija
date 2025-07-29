@@ -63,7 +63,7 @@ export const Footer = () => {
           </div>
         </div>
         <div className="border-t border-gray-800 mt-8 pt-8 text-center text-gray-400">
-          <p>&copy; 2025 League of Naija. Built for Nigerian Gamers, by 3merald.</p>
+          <p>&copy; 2025 League of Naija. Built for Nigerian Gamers.</p>
         </div>
       </div>
     </footer>

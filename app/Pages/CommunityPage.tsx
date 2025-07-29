@@ -10,19 +10,23 @@ export const CommunityPage = () => {
           title: "Discord Integration",
           description: "Join our active Discord community with voice channels, tournaments, and real-time chat.",
           icon: "fab fa-discord",
-          buttonText: "Join Discord"
+          buttonText: "Join Discord",
+          link: "https://discord.gg/ZR4FacWt3N"
+
         },
         {
           title: "Community Forums",
           description: "Discuss strategies, share tips, and connect with players in dedicated game forums.",
           icon: "fas fa-comments",
-          buttonText: "Enter Forums"
+          buttonText: "Enter Forums",
+          link: "https://chat.whatsapp.com/CLH7TaTaGUD9KYlC3NvaAU?mode=r_t",
         },
         {
           title: "Voice Rooms",
           description: "Real-time voice communication for team coordination and casual gaming sessions.",
           icon: "fas fa-microphone",
-          buttonText: "Join Voice"
+          buttonText: "Join Voice",
+          link: "https://discord.gg/ZjS5YrJRw9"
         }
       ];
     const stats = [
@@ -96,6 +100,7 @@ export const CommunityPage = () => {
               <motion.button 
                 whileHover={{ y: -2 }}
                 whileTap={{ scale: 0.98 }}
+                onClick={() => window.open(feature.link, '_blank')}
                 className="bg-green-400 text-black px-6 py-3 rounded-xl font-semibold w-full hover:bg-green-500 transition-all duration-300"
               >
                 {feature.buttonText}
@@ -145,36 +150,7 @@ export const CommunityPage = () => {
 
 
 
-          {/* <div className="container mx-auto px-4 py-12 mt-20">
-                    <div className="flex items-center justify-between space-x-8">
-                        <div className="h-12 w-24 bg-gray-800 rounded-lg text-white">Riot Games</div>
-                        <div className="h-12 w-24 bg-gray-800 rounded-lg">Riot Games</div>
-                        <div className="h-12 w-24 bg-gray-800 rounded-lg">Riot Games</div>
-                        <div className="h-12 w-24 bg-gray-800 rounded-lg">Riot Games</div>
-                    </div>
-
-                </div>
-                <div className="bg-gradient container mx-auto px-4 py-16 mb-24 mt-24">
-                    <h2 className="text-2xl font-bold mb-8">ACTIVE IN OTHER GAMES</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-9 mt-16">
-                        {games.map((game, index) => (
-                            <div key={index} className="relative group mx-auto">
-                                <div className="aspect-w-3 aspect-h--4 rounded-lg overflow-hidden">
-                                    <img src={game.image} alt={game.title} className='w-80 -full object-cover transform group-hover:scale-105 transition-transform
-                                     duration-200'/>
-                                     <div className="absolute inset-0 bg-gradient-to-t from black/80 to-transparent"/>
-                                     <div className="absolute bottom-4 left-4">
-                                        <h3 className='text-xl font-bold'>{game.title}
-                                            
-                                        </h3>
-                                     </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-
-                </div>
-         */}
+        
         
         </div>
         

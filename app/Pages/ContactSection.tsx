@@ -20,6 +20,7 @@ export const ContactSection = () => {
             <motion.button 
               whileHover={{ y: -2 }}
               whileTap={{ scale: 0.98 }}
+              onClick={() => window.open("https://chat.whatsapp.com/CLH7TaTaGUD9KYlC3NvaAU?mode=r_t", "_blank")}
               className="bg-green-400 text-black px-8 py-4 rounded-xl font-semibold text-lg hover:bg-green-500 transition-all duration-300"
             >
               <i className="fas fa-user-plus mr-2"></i>

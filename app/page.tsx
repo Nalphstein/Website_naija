@@ -17,26 +17,28 @@ import 'react-toastify/dist/ReactToastify.css';
 
 export default function Home() {
   return (
-    <main className="bg-black min-h-screen mx-1 my-2 overflow-hidden">
-      <div className="">
+    <main className="bg-black min-h-screen mx-1  overflow-x-hidden">
+      <div className="mt-2">
         <Floatingnavbar/>
+        <section id="home">
         <Hero />
-        <div className="">
+        </section>
+        <section id="community" className="">
           <CommunityPage />
-        </div>
-        <div className="py-10">
+        </section>
+        <section id="tournaments" className="py-10">
           <TournamentSection />
-        </div>
+        </section>
         {/* <div className="py-20">
           <VideoSection />
         </div> */}
-        <div className="">
+        <section id="social" className="">
           <SocialHub/>
-        </div>
-        <div className="">
+        </section>
+        <section id="contact" className="">
           <ContactSection />
-        </div>
-        <div className="pb-2">
+        </section>
+        <div className="">
           <Footer />
         </div>
       </div>
