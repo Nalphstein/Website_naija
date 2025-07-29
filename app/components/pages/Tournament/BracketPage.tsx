@@ -121,6 +121,7 @@ function generateWeeklyDoubleRoundRobinFixtures(teams: Team[]): Fixture[] {
   return fixtures;
 }
 
+
 const BracketPage: React.FC<BracketPageProps> = ({ 
   teams, 
   setTeams, 
@@ -138,7 +139,8 @@ const BracketPage: React.FC<BracketPageProps> = ({
   
   const fixtures: Fixture[] = generateWeeklyDoubleRoundRobinFixtures(teams);
   const [fixtureScores, setFixtureScores] = useState<{ [key: string]: { homeScore: number; awayScore: number; completed?: boolean } }>({});
-
+  
+  const totalWeeks = fixtures.length > 0 ? Math.max(...fixtures.map(f => f.week)) : 1;
   // Load fixture scores from Firestore on mount with real-time updates
   useEffect(() => {
     const loadScores = async (): Promise<void> => {
@@ -214,7 +216,7 @@ const BracketPage: React.FC<BracketPageProps> = ({
   }
 
   // Get total weeks from fixtures
-  const totalWeeks = fixtures.length > 0 ? Math.max(...fixtures.map(f => f.week)) : 1;
+  // const totalWeeks = fixtures.length > 0 ? Math.max(...fixtures.map(f => f.week)) : 1;
   
   // Get fixtures for current week
   const currentWeekFixtures = fixtures.filter(f => f.week === currentWeek);
