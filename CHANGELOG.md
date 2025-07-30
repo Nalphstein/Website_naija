@@ -21,8 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Cloudinary Integration for Team Logos**
   - Implemented client-side image upload to Cloudinary for team logos
   - Added `uploadTeamLogo` function in `teamservice.ts` to handle direct uploads
-  - Environment variables for Cloudinary (`NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME`, `NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET`) documented for setup
   - Ensured Firebase remains the primary data store for all non-image data
+- **State Persistence and Debugging**
+  - Implementing robust restoration of tournament object and ID after navigation using `localStorage` and Firestore.
+  - Ensuring fixture scores and tournament state are reliably loaded and saved across navigation and refreshes.
+  - Continuing to extract and modularize any remaining logic from `BracketPage.tsx`.
 
 ### Current Issues
 - **TypeScript and Module Resolution**
@@ -37,6 +40,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fixed import paths in BracketPage component
   - Updated type definitions for Fixture and Match interfaces
   - Standardized component exports using index files
+- **Fixture Score Persistence**
+  - Refactored `fixtureService.ts` to use a composite key (`tournamentId_fixtureKey`) for saving and retrieving fixture scores in Firestore.
+  - Improved error handling and logging for score loading and saving.
+  - Added real-time subscription and batch save functions for fixture scores.
+  - Ensured previously recorded scores are loaded and displayed after navigation.
+- **Favicon Customization**
+  - Updated `layout.tsx` to reference a custom favicon (`/League_Logo.png`) instead of the default Vercel/Next.js icon.
+  - Verified favicon changes by clearing browser cache and restarting the dev server.
 
 ### Changed
 - **Component Organization**
@@ -66,9 +77,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Document Cloudinary setup and usage in project README
   - Add image validation and error handling improvements for uploads
   - Review security of client-side upload presets and consider server-side signature if needed
-- **State Persistence and Debugging**
-  - Implement robust restoration of tournament object and ID after navigation using `localStorage` and Firestore.
-  - Ensure fixture scores and tournament state are reliably loaded and saved across navigation and refreshes.
-  - Continue extracting and modularizing any remaining logic from `BracketPage.tsx`.
+- **Favicon Format Improvements**
+  - Consider providing multiple favicon formats for broader browser compatibility (e.g., SVG, ICO, PNG).
+  - Add fallback icons for legacy browsers.
 
-[Unreleased]: https://github.com/your-repo/compare/v1.0.0...HEAD
+
