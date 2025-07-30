@@ -11,8 +11,15 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "League of Naija",
   description: "A league of Naija Community we",
+  icons: {
+    icon: '/League_Logo.png', // Renamed file without spaces
+    // Alternative: you can specify multiple formats
+    // icon: [
+    //   { url: '/league-of-naija-logo.svg', type: 'image/svg+xml' },
+    //   { url: '/favicon.ico' },
+    // ],
+  },
 };
-
 export default function RootLayout({
   children,
 }: {

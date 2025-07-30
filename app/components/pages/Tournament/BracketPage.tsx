@@ -4,6 +4,8 @@ import { Trophy, Calendar, Users } from "lucide-react";
 import { Team } from "../../../services/teamservice";
 import { updateTeam, getAllTeams } from '../../../services/teamservice';
 import { saveFixtureScore, getFixtureScores } from '../../../services/fixtureService';
+// REMOVE localStorage imports - we'll use only Firebase
+import { getTournament, updateTournament } from '../../../services/tournamentService';
 import WeekNavigation from "./WeekNavigation";
 import FixtureList from "./FixtureList";
 import WeekStatistics from "./WeekStatistics";
@@ -141,9 +143,10 @@ const BracketPage: React.FC<BracketPageProps> = ({
   const [fixtureScores, setFixtureScores] = useState<{ [key: string]: { homeScore: number; awayScore: number; completed?: boolean } }>({});
   
   const totalWeeks = fixtures.length > 0 ? Math.max(...fixtures.map(f => f.week)) : 1;
-  // Load fixture scores from Firestore on mount with real-time updates
+
+  // MODIFIED: Load tournament data and fixture scores from Firebase only
   useEffect(() => {
-    const loadScores = async (): Promise<void> => {
+    const loadTournamentData = async (): Promise<void> => {
       if (!tournament?.id) {
         setScoresLoaded(true);
         return;
@@ -152,6 +155,11 @@ const BracketPage: React.FC<BracketPageProps> = ({
       try {
         toast.info('Loading tournament data...', { autoClose: 2000 });
         
+        // Load tournament data from Firebase
+        const tournamentData = await getTournament(tournament.id);
+        console.log("Loaded tournament from Firebase:", tournamentData);
+        
+        // Load fixture scores from Firebase
         const scores = await getFixtureScores(tournament.id);
         console.log("Loaded scores from Firebase:", scores);
         
@@ -167,56 +175,71 @@ const BracketPage: React.FC<BracketPageProps> = ({
         setFixtureScores(scoresWithCompletion);
         console.log("[BracketPage] Fixture scores after loading:", scoresWithCompletion);
         
-        // Auto-advance to the appropriate week based on completed matches
-        const completedFixtureKeys = Object.keys(scoresWithCompletion);
-        if (completedFixtureKeys.length > 0) {
-          // Find the latest week with incomplete matches, or advance to next week
-          for (let week = 1; week <= totalWeeks; week++) {
-            const weekFixtures = fixtures.filter(f => f.week === week);
-            const weekCompleted = weekFixtures.every(fixture => 
-              scoresWithCompletion[getFixtureKey(fixture)]?.completed
-            );
-            
-            if (!weekCompleted) {
-              setCurrentWeek(week);
-              break;
-            } else if (week === totalWeeks) {
-              // All weeks completed, stay on last week
-              setCurrentWeek(week);
-            } else if (week < totalWeeks) {
-              // This week is completed, check if next week should be available
-              setCurrentWeek(week + 1);
+        // Set current week from tournament data or calculate from completed matches
+        let weekToSet = 1;
+        
+        if (tournamentData?.currentWeek) {
+          // Use week from Firebase tournament data
+          weekToSet = tournamentData.currentWeek;
+        } else {
+          // Calculate current week based on completed matches
+          if (Object.keys(scoresWithCompletion).length > 0) {
+            for (let week = 1; week <= totalWeeks; week++) {
+              const weekFixtures = fixtures.filter(f => f.week === week);
+              const weekCompleted = weekFixtures.every(fixture => 
+                scoresWithCompletion[getFixtureKey(fixture)]?.completed
+              );
+              
+              if (!weekCompleted) {
+                weekToSet = week;
+                break;
+              } else if (week === totalWeeks) {
+                // All weeks completed, stay on last week
+                weekToSet = week;
+              } else if (week < totalWeeks) {
+                // This week is completed, check if next week should be available
+                weekToSet = week + 1;
+              }
             }
           }
+        }
+        
+        setCurrentWeek(weekToSet);
+        
+        // Update tournament with current week if it's different
+        if (tournamentData && tournamentData.currentWeek !== weekToSet) {
+          const updatedTournament = {
+            ...tournamentData,
+            currentWeek: weekToSet
+          };
+          setTournament(updatedTournament);
+          await updateTournament(tournament.id, updatedTournament);
         }
         
         toast.success('Tournament data loaded successfully!', { autoClose: 3000 });
         
       } catch (error) {
-        console.error("Error loading fixture scores:", error);
-        // toast.error("Failed to load tournament data. Please refresh the page.", { 
-        //   autoClose: 5000,
-        //   position: "top-center"
-        // });
+        console.error("Error loading tournament data:", error);
+        toast.error("Failed to load tournament data. Please refresh the page.", { 
+          autoClose: 5000,
+          position: "top-center"
+        });
       } finally {
         setScoresLoaded(true);
       }
     };
     
-    loadScores();
-  }, [tournament?.id, fixtures.length]);
+    loadTournamentData();
+  }, [tournament?.id, fixtures.length, totalWeeks]);
   
-  // Show loading state while scores are being fetched
+  // Show loading state while data is being fetched
   if (!scoresLoaded) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-900">
-        <div className="text-white">Loading fixture scores...</div>
+        <div className="text-white">Loading tournament data...</div>
       </div>
     );
   }
-
-  // Get total weeks from fixtures
-  // const totalWeeks = fixtures.length > 0 ? Math.max(...fixtures.map(f => f.week)) : 1;
   
   // Get fixtures for current week
   const currentWeekFixtures = fixtures.filter(f => f.week === currentWeek);
@@ -262,7 +285,7 @@ const BracketPage: React.FC<BracketPageProps> = ({
     });
   }
 
-  // Enhanced save with optimistic updates and error recovery
+  // MODIFIED: Enhanced save with Firebase-only updates and current week tracking
   async function handleSaveScore(fixtureKey: string): Promise<void> {
     if (isSaving) return;
     
@@ -309,10 +332,6 @@ const BracketPage: React.FC<BracketPageProps> = ({
     const awayTeam = updatedTeams.find(t => t.id === away.id);
     if (!homeTeam || !awayTeam) return;
     
-    // Store original team stats for potential rollback
-    const originalHomeStats = { wins: homeTeam.wins, losses: homeTeam.losses, points: homeTeam.points };
-    const originalAwayStats = { wins: awayTeam.wins, losses: awayTeam.losses, points: awayTeam.points };
-    
     if (score.homeScore > score.awayScore) {
       homeTeam.wins += 1;
       homeTeam.points += 3;
@@ -334,17 +353,17 @@ const BracketPage: React.FC<BracketPageProps> = ({
       
       while (retryCount < maxRetries) {
         try {
-          // Save fixture score
+          // Save fixture score to Firebase
           if (tournament?.id) {
             await saveFixtureScore({
               tournamentId: tournament.id,
-              fixtureKey,
+              fixtureId: String(fixture),
               homeScore: score.homeScore,
               awayScore: score.awayScore,
             });
           }
           
-          // Update teams in parallel
+          // Update teams in Firebase
           await Promise.all([
             updateTeam(homeTeam.id, {
               wins: homeTeam.wins,
@@ -358,11 +377,31 @@ const BracketPage: React.FC<BracketPageProps> = ({
             }),
           ]);
           
+          // Check if week is completed and update tournament current week
+          const weekCompleted = isWeekCompleted(fixture.week);
+          let newCurrentWeek = currentWeek;
+          
+          if (weekCompleted && fixture.week < totalWeeks) {
+            newCurrentWeek = fixture.week + 1;
+            setCurrentWeek(newCurrentWeek);
+          }
+          
+          // Update tournament data in Firebase with current week
+          if (tournament?.id) {
+            const updatedTournament = {
+              ...tournament,
+              currentWeek: newCurrentWeek,
+              lastUpdated: new Date().toISOString()
+            };
+            setTournament(updatedTournament);
+            await updateTournament(tournament.id, updatedTournament);
+          }
+          
           // Refresh teams from Firebase to ensure consistency
           const fetchedTeams = await getAllTeams();
           setTeams(fetchedTeams);
           
-          console.log('Score saved successfully');
+          console.log('Score saved successfully to Firebase');
           
           // Update the loading toast to success
           toast.update(savingToastId, {
@@ -373,7 +412,6 @@ const BracketPage: React.FC<BracketPageProps> = ({
           });
           
           // Check if week is completed and show additional notification
-          const weekCompleted = isWeekCompleted(fixture.week);
           if (weekCompleted && fixture.week < totalWeeks) {
             setTimeout(() => {
               toast.success(`🎉 Week ${fixture.week} completed! Week ${fixture.week + 1} is now available.`, {
@@ -404,7 +442,7 @@ const BracketPage: React.FC<BracketPageProps> = ({
       }
       
     } catch (error) {
-      console.error("Error saving score:", error);
+      console.error("Error saving to Firebase:", error);
       
       // Rollback optimistic updates on failure
       setTeams(originalTeams);
@@ -449,6 +487,7 @@ const BracketPage: React.FC<BracketPageProps> = ({
     });
   }
 
+  // MODIFIED: Save playoff results to Firebase
   function handlePlayoffSaveScore(roundIdx: number, matchIdx: number) {
     setTournament((prev: any) => {
       if (!prev) return prev;
@@ -513,7 +552,17 @@ const BracketPage: React.FC<BracketPageProps> = ({
         }
       }
       
-      return { ...prev, rounds };
+      const updatedTournament = { ...prev, rounds };
+      
+      // Save updated tournament to Firebase
+      if (prev.id) {
+        updateTournament(prev.id, updatedTournament).catch(error => {
+          console.error('Error saving playoff tournament to Firebase:', error);
+          toast.error('Failed to save playoff results. Please try again.', { autoClose: 3000 });
+        });
+      }
+      
+      return updatedTournament;
     });
   }
 
@@ -540,12 +589,24 @@ const BracketPage: React.FC<BracketPageProps> = ({
       });
     }
     
-    setTournament({
+    const newPlayoffTournament = {
       id: 'playoffs',
       teams: qualified,
       rounds: [matches],
       status: 'active',
       createdAt: new Date().toISOString(),
+    };
+    
+    setTournament(newPlayoffTournament);
+    
+    // Save playoff tournament to Firebase
+    updateTournament('playoffs', {
+      teams: newPlayoffTournament.teams,
+      rounds: newPlayoffTournament.rounds,
+      status: 'active' as 'active' | 'completed'
+    }).catch(error => {
+      console.error('Error saving playoff tournament to Firebase:', error);
+      toast.error('Failed to save playoff bracket. Please try again.', { autoClose: 3000 });
     });
     
     toast.success(`Playoff bracket generated with ${playoffSize} teams!`, { autoClose: 3000 });
@@ -553,6 +614,12 @@ const BracketPage: React.FC<BracketPageProps> = ({
 
   function handleResetPlayoffBracket() {
     setTournament(null);
+    
+    // Clear playoff tournament from Firebase
+    updateTournament('playoffs', null).catch(error => {
+      console.error('Error clearing playoff tournament from Firebase:', error);
+    });
+    
     toast.info('Playoff bracket has been reset', { autoClose: 2000 });
   }
 

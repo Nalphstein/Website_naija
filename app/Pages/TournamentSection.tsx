@@ -10,7 +10,7 @@ import {
   deleteTeam as deleteTeamService, 
   uploadTeamLogo 
 } from '../services/teamservice';
-import { getTournament, updateTournament, TournamentType, getCurrentTournamentId, setCurrentTournamentId, clearCurrentTournament } from '../services/tournamentService';
+import { getTournament, updateTournament, TournamentType } from '../services/tournamentService';
 import HomePage from '../components/pages/Tournament/HomePage';
 import TeamManagementPage from '../components/pages/Tournament/TeamManagementPage';
 import LiveScoringPage from '../components/pages/Tournament/LiveScoringPage';
@@ -55,22 +55,17 @@ export const TournamentSection = () => {
     const loadInitialData = async () => {
       try {
         setLoading(true);
-        // Try to restore tournament ID from localStorage
-        const savedTournamentId = getCurrentTournamentId();
-        let savedTournament = null;
-        if (savedTournamentId) {
-          savedTournament = await getTournament(savedTournamentId);
-        } else {
-          savedTournament = await getTournament('current');
-        }
+        // Always fetch the tournament with a known ID
+        const savedTournament = await getTournament('current');
         const loadedTeams = await getAllTeams();
-        setTeams(loadedTeams);
+        setTeams(loadedTeams || []);
         if (savedTournament) {
           setTournament(savedTournament);
-          setCurrentTournamentId(savedTournament.id); // Persist to localStorage
         }
       } catch (error) {
         console.error('Error loading data:', error);
+        setTeams([]);
+        setTournament(null);
       } finally {
         setLoading(false);
         setTournamentLoading(false);
@@ -149,7 +144,6 @@ export const TournamentSection = () => {
       createdAt: new Date().toISOString()
     };
     setTournament(newTournament);
-    setCurrentTournamentId(newTournament.id); // Persist to localStorage
     try {
       await updateTournament('current', newTournament);
     } catch (error) {
@@ -244,8 +238,7 @@ export const TournamentSection = () => {
           setCurrentPage={setCurrentPage}
         />;
       case 'bracket':
-        console.log("Tournament object:", tournament);
-        console.log("Tournament ID:", tournament?.id);
+      
         return <BracketPage 
           teams={teams}
           setTeams={setTeams}
