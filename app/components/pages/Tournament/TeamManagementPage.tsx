@@ -63,23 +63,23 @@ const TeamManagementPage: React.FC<TeamManagementPageProps> = ({
               </div>
             </div>
           </div>
-          <div className="mt-4 flex space-x-2">
+          <div className="mt-4 flex">
             <button
               onClick={() => startEditingTeam(team)}
               className="flex-1 bg-blue-500 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-600 transition-colors flex items-center justify-center"
               disabled={loading}
             >
               <Edit className="w-4 h-4 mr-2" />
-              Edit
+              View
             </button>
-            <button
+            {/* <button
               onClick={() => deleteTeam(team.id)}
               className="flex-1 bg-red-500 text-white px-4 py-2 rounded-lg font-semibold hover:bg-red-600 transition-colors flex items-center justify-center"
               disabled={loading}
             >
               <Trash2 className="w-4 h-4 mr-2" />
               Delete
-            </button>
+            </button> */}
           </div>
           <div className="mt-4 pt-4 border-t border-gray-600 flex justify-between text-sm">
             <span className="text-gray-400">W: {team.wins}</span>
