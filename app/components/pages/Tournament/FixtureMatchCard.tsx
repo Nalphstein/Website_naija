@@ -106,7 +106,16 @@ const FixtureMatchCard: React.FC<FixtureMatchCardProps> = ({
       </div>
     )}
     {isCompleted && (
-      <div className="text-center text-green-400 font-semibold">✓ Match Completed</div>
+      <div className="text-center">
+        <div className="text-green-400 font-semibold mb-1">✓ Match Completed</div>
+        {score.homeScore > score.awayScore ? (
+          <div className="text-yellow-400 font-bold">{fixture.home.name} Won!</div>
+        ) : score.awayScore > score.homeScore ? (
+          <div className="text-yellow-400 font-bold">{fixture.away.name} Won!</div>
+        ) : (
+          <div className="text-blue-400 font-bold">Match Drawn</div>
+        )}
+      </div>
     )}
   </div>
 );

@@ -8,7 +8,7 @@ const firebaseConfig = {
     apiKey: "AIzaSyAD-zFuwNGPXDVaGExT3QBRfwrBcoJcvio",
     authDomain: "website-naija.firebaseapp.com",
     projectId: "website-naija",
-    storageBucket: "website-naija.firebasestorage.app",
+    storageBucket: "website-naija.appspot.com",
     messagingSenderId: "1094108785942",
     appId: "1:1094108785942:web:b457d089faf3d5a4867437",
     measurementId: "G-EQ77XG70SV"
@@ -27,6 +27,6 @@ if (typeof window !== "undefined") {
 }
 
 export const db = getFirestore(app);
-export const storage = getStorage(app);
+// export const storage = getStorage(app);
 
 export default app;

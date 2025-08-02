@@ -45,6 +45,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Improved error handling and logging for score loading and saving.
   - Added real-time subscription and batch save functions for fixture scores.
   - Ensured previously recorded scores are loaded and displayed after navigation.
+- **Firebase Fixture Saving Optimization**
+  - Removed `tournamentId` dependency from fixture saving functions to simplify data structure and improve reliability.
+  - Modified `saveFixtureScore`, `saveMultipleFixtureScores`, `getFixtureScores`, `getSpecificFixtureScore`, and `subscribeToFixtureScores` to work without `tournamentId`.
+  - Renamed `getTournamentFixtureStats` to `getFixtureStats` to reflect its updated functionality.
+  - Verified Firebase connectivity and fixture saving with a test script (`check-firebase.js`).
+  - Confirmed successful writing to and reading from the root `fixtures` collection using `fixtureKey` as the primary identifier.
+  - Enhanced error handling and logging throughout the fixture service.
+- **Tournament-Independent Fixture Management**
+  - Implemented tournament-independent approach in `BracketPage.tsx` to load and save fixture scores without requiring a tournament ID.
+  - Updated `useEffect` hook to load fixture scores independently, with an optional attempt to load tournament data if an ID is present.
+  - Modified `handleSaveScore` function to work with or without a tournament ID, making the component more flexible.
+  - Added optimistic updates for fixture scores state to improve user experience.
+  - Implemented conditional tournament data updates in Firebase only when a tournament ID exists.
+  - Enhanced error handling and resilience throughout the fixture management flow.
 - **Favicon Customization**
   - Updated `layout.tsx` to reference a custom favicon (`/League_Logo.png`) instead of the default Vercel/Next.js icon.
   - Verified favicon changes by clearing browser cache and restarting the dev server.

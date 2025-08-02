@@ -1,3 +1,5 @@
+// Updated fixtureService.ts - Tournament Independent Approach
+
 import { db } from '../../lib/firebase';
 import {
   collection,
@@ -14,163 +16,209 @@ import {
 } from 'firebase/firestore';
 
 export type FixtureScore = {
-  tournamentId: string;
   fixtureKey: string;
   homeScore: number;
   awayScore: number;
+  tournamentId?: string; // Optional - for filtering/organization only
 };
 
 const fixturesCollection = collection(db, 'fixtures');
 
-export async function saveFixtureScore({ tournamentId, fixtureKey, homeScore, awayScore }: FixtureScore): Promise<void> {
-  // Use tournamentId + fixtureKey as the doc id for idempotency
-  const docId = `${tournamentId}_${fixtureKey}`;
-  const fixtureRef = doc(fixturesCollection, docId);
-  await setDoc(fixtureRef, {
-    tournamentId,
+// Save fixture using only the fixture key as document ID
+export async function saveFixtureScore({ fixtureKey, homeScore, awayScore, tournamentId }: FixtureScore): Promise<void> {
+  console.log(`[fixtureService] Saving fixture with key as ID: ${fixtureKey}`, {
     fixtureKey,
     homeScore,
     awayScore,
-    completed: true, // Explicitly mark as completed
-    savedAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    tournamentId: tournamentId || 'not-provided'
   });
-}
-
-// Enhanced function to get fixture scores with better error handling and logging
-export async function getFixtureScores(tournamentId: string): Promise<Record<string, { homeScore: number; awayScore: number; completed?: boolean }>> {
-  console.log(`[fixtureService] Loading fixture scores for tournament: ${tournamentId}`);
+  
+  // Validate fixture key
+  if (!fixtureKey || fixtureKey.includes('undefined') || fixtureKey.includes('null')) {
+    console.error(`[fixtureService] Invalid fixture key: ${fixtureKey}`);
+    throw new Error(`Invalid fixture key: ${fixtureKey}`);
+  }
   
   try {
-    const q = query(fixturesCollection, where('tournamentId', '==', tournamentId));
-    const querySnapshot = await getDocs(q);
-    const result: Record<string, { homeScore: number; awayScore: number; completed?: boolean }> = {};
+    // Use fixtureKey directly as document ID
+    const fixtureRef = doc(fixturesCollection, fixtureKey);
     
-    querySnapshot.forEach((docSnap: QueryDocumentSnapshot<DocumentData>) => {
-      const data = docSnap.data();
-      result[data.fixtureKey] = {
-        homeScore: data.homeScore,
-        awayScore: data.awayScore,
-        completed: data.completed || true, // Default to true for backward compatibility
-      };
-    });
-    
-    console.log(`[fixtureService] Loaded ${Object.keys(result).length} fixture scores:`, result);
-    return result;
-  } catch (error) {
-    console.error(`[fixtureService] Error loading fixture scores for tournament ${tournamentId}:`, error);
-    throw error;
-  }
-}
-
-// Get a specific fixture score - useful for debugging
-export async function getSpecificFixtureScore(tournamentId: string, fixtureKey: string): Promise<{ homeScore: number; awayScore: number; completed?: boolean } | null> {
-  const docId = `${tournamentId}_${fixtureKey}`;
-  const fixtureRef = doc(fixturesCollection, docId);
-  
-  try {
-    const docSnap = await getDoc(fixtureRef);
-    if (docSnap.exists()) {
-      const data = docSnap.data();
-      return {
-        homeScore: data.homeScore,
-        awayScore: data.awayScore,
-        completed: data.completed || true,
-      };
-    }
-    return null;
-  } catch (error) {
-    console.error(`[fixtureService] Error loading specific fixture score ${fixtureKey}:`, error);
-    return null;
-  }
-}
-
-// Batch save multiple scores for better performance
-export async function saveMultipleFixtureScores(tournamentId: string, scores: Array<{
-  fixtureKey: string;
-  homeScore: number;
-  awayScore: number;
-}>) {
-  const batch = writeBatch(db);
-  
-  scores.forEach(({ fixtureKey, homeScore, awayScore }) => {
-    const docId = `${tournamentId}_${fixtureKey}`;
-    const docRef = doc(fixturesCollection, docId);
-    batch.set(docRef, {
-      tournamentId,
+    const fixtureData = {
       fixtureKey,
       homeScore,
       awayScore,
       completed: true,
       savedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      // Only include tournamentId if provided (for backwards compatibility)
+      ...(tournamentId && { tournamentId })
+    };
+    
+    console.log(`[fixtureService] Saving fixture data:`, fixtureData);
+    await setDoc(fixtureRef, fixtureData);
+    
+    // Verify save
+    const savedDoc = await getDoc(fixtureRef);
+    if (savedDoc.exists()) {
+      console.log(`[fixtureService] ✅ Successfully saved fixture: ${fixtureKey}`);
+    } else {
+      throw new Error(`Failed to verify saved fixture: ${fixtureKey}`);
+    }
+  } catch (error) {
+    console.error(`[fixtureService] ❌ Error saving fixture:`, error);
+    throw error;
+  }
+}
+
+// Get all fixture scores (no tournament dependency)
+export async function getFixtureScores(tournamentId?: string): Promise<Record<string, { homeScore: number; awayScore: number; completed?: boolean }>> {
+  console.log(`[fixtureService] Loading fixture scores${tournamentId ? ` for tournament: ${tournamentId}` : ' (all fixtures)'}`);
+  
+  try {
+    let q;
+    if (tournamentId) {
+      // Filter by tournament if provided
+      q = query(fixturesCollection, where('tournamentId', '==', tournamentId));
+    } else {
+      // Get all fixtures
+      q = query(fixturesCollection);
+    }
+    
+    const querySnapshot = await getDocs(q);
+    const result: Record<string, { homeScore: number; awayScore: number; completed?: boolean }> = {};
+    
+    querySnapshot.forEach((docSnap: QueryDocumentSnapshot<DocumentData>) => {
+      const data = docSnap.data();
+      const fixtureKey = data.fixtureKey;
+      
+      // Skip invalid fixture keys
+      if (!fixtureKey || typeof fixtureKey !== 'string') {
+        console.warn(`[fixtureService] Skipping invalid fixture key:`, data);
+        return;
+      }
+      
+      result[fixtureKey] = {
+        homeScore: data.homeScore || 0,
+        awayScore: data.awayScore || 0,
+        completed: data.completed !== false, // Default to true
+      };
     });
+    
+    console.log(`[fixtureService] ✅ Loaded ${Object.keys(result).length} fixture scores`);
+    return result;
+  } catch (error) {
+    console.error(`[fixtureService] ❌ Error loading fixture scores:`, error);
+    throw error;
+  }
+}
+
+// Get a specific fixture by its key
+export async function getSpecificFixtureScore(fixtureKey: string): Promise<{ homeScore: number; awayScore: number; completed?: boolean } | null> {
+  try {
+    const fixtureRef = doc(fixturesCollection, fixtureKey);
+    const docSnap = await getDoc(fixtureRef);
+    
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      return {
+        homeScore: data.homeScore || 0,
+        awayScore: data.awayScore || 0,
+        completed: data.completed !== false,
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error(`[fixtureService] Error loading fixture ${fixtureKey}:`, error);
+    return null;
+  }
+}
+
+// Batch save multiple fixtures
+export async function saveMultipleFixtureScores(fixtures: Array<{
+  fixtureKey: string;
+  homeScore: number;
+  awayScore: number;
+  tournamentId?: string;
+}>) {
+  const batch = writeBatch(db);
+  
+  fixtures.forEach(({ fixtureKey, homeScore, awayScore, tournamentId }) => {
+    const docRef = doc(fixturesCollection, fixtureKey);
+    const fixtureData = {
+      fixtureKey,
+      homeScore,
+      awayScore,
+      completed: true,
+      savedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      ...(tournamentId && { tournamentId })
+    };
+    batch.set(docRef, fixtureData);
   });
   
   await batch.commit();
+  console.log(`[fixtureService] ✅ Batch saved ${fixtures.length} fixtures`);
 }
 
-// Real-time score updates subscription
-export function subscribeToFixtureScores(tournamentId: string, callback: (scores: Record<string, { homeScore: number; awayScore: number; completed?: boolean }>) => void) {
-  const q = query(fixturesCollection, where('tournamentId', '==', tournamentId));
-  
-  return onSnapshot(q, (snapshot) => {
+// Get all fixtures (for debugging)
+export async function getAllFixtures(): Promise<any[]> {
+  try {
+    const querySnapshot = await getDocs(fixturesCollection);
+    const fixtures: any[] = [];
+    
+    querySnapshot.forEach((doc) => {
+      fixtures.push({
+        id: doc.id,
+        ...doc.data()
+      });
+    });
+    
+    console.log(`[fixtureService] Found ${fixtures.length} total fixtures`);
+    return fixtures;
+  } catch (error) {
+    console.error(`[fixtureService] Error getting all fixtures:`, error);
+    return [];
+  }
+}
+
+// Clear fixtures by pattern (useful for cleanup)
+export async function clearFixturesByPattern(pattern: string): Promise<void> {
+  try {
+    const allFixtures = await getAllFixtures();
+    const toDelete = allFixtures.filter(f => f.fixtureKey?.includes(pattern));
+    
+    if (toDelete.length > 0) {
+      const batch = writeBatch(db);
+      toDelete.forEach(fixture => {
+        const docRef = doc(fixturesCollection, fixture.id);
+        batch.delete(docRef);
+      });
+      
+      await batch.commit();
+      console.log(`[fixtureService] ✅ Deleted ${toDelete.length} fixtures matching pattern: ${pattern}`);
+    }
+  } catch (error) {
+    console.error(`[fixtureService] Error clearing fixtures:`, error);
+    throw error;
+  }
+}
+
+// Real-time subscription to all fixtures
+export function subscribeToAllFixtures(callback: (scores: Record<string, { homeScore: number; awayScore: number; completed?: boolean }>) => void) {
+  return onSnapshot(fixturesCollection, (snapshot) => {
     const scores: Record<string, { homeScore: number; awayScore: number; completed?: boolean }> = {};
     snapshot.forEach(doc => {
       const data = doc.data();
-      scores[data.fixtureKey] = {
-        homeScore: data.homeScore,
-        awayScore: data.awayScore,
-        completed: data.completed || true,
-      };
+      if (data.fixtureKey) {
+        scores[data.fixtureKey] = {
+          homeScore: data.homeScore || 0,
+          awayScore: data.awayScore || 0,
+          completed: data.completed !== false,
+        };
+      }
     });
-    console.log(`[fixtureService] Real-time update - ${Object.keys(scores).length} scores received:`, scores);
     callback(scores);
   }, (error) => {
-    console.error(`[fixtureService] Error in real-time subscription for tournament ${tournamentId}:`, error);
+    console.error(`[fixtureService] Real-time subscription error:`, error);
   });
-}
-
-// Clear all fixture scores for a tournament (useful for resetting)
-export async function clearTournamentFixtureScores(tournamentId: string): Promise<void> {
-  const q = query(fixturesCollection, where('tournamentId', '==', tournamentId));
-  const querySnapshot = await getDocs(q);
-  
-  const batch = writeBatch(db);
-  querySnapshot.forEach((doc) => {
-    batch.delete(doc.ref);
-  });
-  
-  await batch.commit();
-  console.log(`[fixtureService] Cleared all fixture scores for tournament: ${tournamentId}`);
-}
-
-// Get tournament fixture statistics
-export async function getTournamentFixtureStats(tournamentId: string): Promise<{
-  totalSaved: number;
-  totalGoals: number;
-  lastUpdated: string | null;
-}> {
-  const q = query(fixturesCollection, where('tournamentId', '==', tournamentId));
-  const querySnapshot = await getDocs(q);
-  
-  let totalSaved = 0;
-  let totalGoals = 0;
-  let lastUpdated: string | null = null;
-  
-  querySnapshot.forEach((doc) => {
-    const data = doc.data();
-    totalSaved++;
-    totalGoals += (data.homeScore || 0) + (data.awayScore || 0);
-    
-    if (!lastUpdated || (data.updatedAt && data.updatedAt > lastUpdated)) {
-      lastUpdated = data.updatedAt;
-    }
-  });
-  
-  return {
-    totalSaved,
-    totalGoals,
-    lastUpdated,
-  };
 }

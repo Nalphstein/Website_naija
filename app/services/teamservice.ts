@@ -1,4 +1,4 @@
-import { db, storage } from '../../lib/firebase';
+import { db} from '../../lib/firebase';
 import {
   collection,
   addDoc,
@@ -12,7 +12,7 @@ import {
   DocumentData,
   QueryDocumentSnapshot,
 } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+// import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 export type Team = {
   id: string;
