@@ -26,6 +26,17 @@ export interface TournamentType {
   currentWeek: number;
   createdAt: any;
   updatedAt?: any;
+  // Double elimination bracket properties
+  bracketType?: 'single-elimination' | 'double-elimination';
+  upperBracket?: any[];
+  lowerBracket?: any[];
+  finals?: any;
+  metadata?: {
+    totalTeams: number;
+    upperBracketTeams: number;
+    lowerBracketTeams: number;
+    qualified: Team[];
+  };
 }
 
 // Get current tournament ID from localStorage
@@ -150,7 +161,7 @@ function cleanTournamentData(updates: Partial<Omit<TournamentType, 'id' | 'creat
   return cleaned;
 }
 
-// Update tournament with better error handling
+// Update tournament with better error handling - FIXED to use setDoc
 export async function updateTournament(id: string, updates: Partial<Omit<TournamentType, 'id' | 'createdAt'>>): Promise<void> {
   try {
     console.log(`[tournamentService] Updating tournament ${id} with:`, updates);
@@ -179,9 +190,20 @@ export async function updateTournament(id: string, updates: Partial<Omit<Tournam
     console.log(`[tournamentService] Final updates to apply:`, finalUpdates);
     
     const docRef = doc(db, 'tournaments', id);
-    await updateDoc(docRef, finalUpdates);
+    
+    // Use setDoc with merge: true instead of updateDoc to handle cases where document may not exist
+    await setDoc(docRef, finalUpdates, { merge: true });
     
     console.log(`[tournamentService] Successfully updated tournament ${id}`);
+    
+    // Verify the update
+    const updatedDoc = await getDoc(docRef);
+    if (updatedDoc.exists()) {
+      console.log(`[tournamentService] ✅ Verified: Tournament ${id} exists after update`);
+    } else {
+      console.warn(`[tournamentService] ⚠️ Warning: Tournament ${id} document not found after update`);
+    }
+    
   } catch (error) {
     console.error(`[tournamentService] Error updating tournament ${id}:`, error);
     console.error(`[tournamentService] Updates that failed:`, updates);
@@ -217,6 +239,69 @@ export async function getAllTournaments(): Promise<TournamentType[]> {
 export async function completeTournament(id: string): Promise<void> {
   await updateTournament(id, { status: 'completed' });
   clearCurrentTournament();
+}
+
+// Specialized function for saving playoff tournaments with enhanced bracket data
+export async function savePlayoffTournament(playoffData: any): Promise<void> {
+  try {
+    console.log(`[tournamentService] Saving playoff tournament with bracket data`);
+    
+    // Clean and validate playoff tournament data
+    const cleanPlayoffData = {
+      id: playoffData.id || 'playoffs',
+      teams: playoffData.teams || [],
+      bracketType: playoffData.bracketType || 'double-elimination',
+      upperBracket: playoffData.upperBracket || [],
+      lowerBracket: playoffData.lowerBracket || [],
+      finals: playoffData.finals || {},
+      metadata: playoffData.metadata || {},
+      status: playoffData.status || 'active',
+      createdAt: playoffData.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    
+    // Ensure all bracket data is serializable
+    try {
+      JSON.stringify(cleanPlayoffData);
+    } catch (error) {
+      console.error(`[tournamentService] Playoff data is not serializable:`, error);
+      throw new Error('Playoff tournament data contains non-serializable content');
+    }
+    
+    const docRef = doc(db, 'tournaments', 'playoffs');
+    
+    // Use setDoc with merge: true to ensure document creation/update
+    await setDoc(docRef, cleanPlayoffData, { merge: true });
+    
+    console.log(`[tournamentService] ✅ Successfully saved playoff tournament`);
+    
+    // Verify the save
+    const savedDoc = await getDoc(docRef);
+    if (savedDoc.exists()) {
+      console.log(`[tournamentService] ✅ Verified: Playoff tournament exists in database`);
+      const data = savedDoc.data();
+      console.log(`[tournamentService] Saved playoff structure:`, {
+        hasUpperBracket: !!data.upperBracket,
+        hasLowerBracket: !!data.lowerBracket,
+        hasFinals: !!data.finals,
+        bracketType: data.bracketType,
+        teamsCount: data.teams?.length || 0
+      });
+    } else {
+      throw new Error('Playoff tournament was not saved properly');
+    }
+    
+  } catch (error) {
+    console.error(`[tournamentService] ❌ Error saving playoff tournament:`, error);
+    if (error instanceof Error) {
+      console.error(`[tournamentService] Error details:`, {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      });
+    }
+    throw error;
+  }
 }
 
 // Test function to debug tournament updates

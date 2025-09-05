@@ -17,7 +17,7 @@ import { toast } from 'react-toastify';
 
 // Firebase imports
 import { db } from '../../../../lib/firebase';
-import { collection, addDoc, getDocs } from 'firebase/firestore';
+import { collection, addDoc, getDocs, doc, setDoc, deleteDoc, getDoc } from 'firebase/firestore';
 
 interface Fixture {
   round: number;
@@ -607,6 +607,1224 @@ const BracketPage: React.FC<BracketPageProps> = ({
     });
   }
 
+  // Enhanced Double Elimination Bracket Generator with proper team progression
+  function generateDoubleEliminationBracket(teams: Team[], playoffSize: number) {
+    console.log(`[Playoff] Generating double elimination bracket for ${playoffSize} teams`);
+    
+    // Sort teams by standings (points, then wins, then goal difference)
+    const sorted = [...teams].sort((a, b) => {
+      if (b.points !== a.points) return b.points - a.points;
+      if (b.wins !== a.wins) return b.wins - a.wins;
+      return (b.wins - b.losses) - (a.wins - a.losses); // Goal difference simulation
+    });
+    
+    const qualified = sorted.slice(0, playoffSize);
+    console.log('[Playoff] Qualified teams:', qualified.map(t => `${t.name} (${t.points}pts)`));
+    
+    // Calculate bracket structure - different logic for different team counts
+    let upperBracketTeams, lowerBracketTeams;
+    
+    if (playoffSize <= 4) {
+      // For 4 or fewer teams, all start in upper bracket
+      upperBracketTeams = playoffSize;
+      lowerBracketTeams = 0;
+    } else {
+      // For 5+ teams, some start in lower bracket
+      upperBracketTeams = Math.min(4, Math.ceil(playoffSize * 0.8)); // Max 4 teams in upper
+      lowerBracketTeams = playoffSize - upperBracketTeams;
+    }
+    
+    console.log(`[Playoff] Upper bracket: ${upperBracketTeams} teams, Lower bracket: ${lowerBracketTeams} teams`);
+    
+    const upperTeams = qualified.slice(0, upperBracketTeams);
+    const lowerStartingTeams = qualified.slice(upperBracketTeams);
+    
+    // Generate upper bracket rounds
+    const upperBracket = generateUpperBracketRounds(upperTeams);
+    
+    // Generate lower bracket with proper progression slots
+    const lowerBracket = generateLowerBracketRounds(lowerStartingTeams, upperBracket.length);
+    
+    // Generate finals structure
+    const finals = generateFinalsStructure();
+    
+    return {
+      upperBracket,
+      lowerBracket,
+      finals,
+      metadata: {
+        totalTeams: playoffSize,
+        upperBracketTeams,
+        lowerBracketTeams,
+        qualified
+      }
+    };
+  }
+  
+  function generateUpperBracketRounds(teams: Team[]) {
+    const rounds = [];
+    let currentTeams = [...teams];
+    let roundNumber = 1;
+    
+    console.log(`[Playoff] Generating upper bracket for ${teams.length} teams`);
+    
+    // Generate matches until we have a winner
+    while (currentTeams.length > 1) {
+      const matches = [];
+      
+      // Determine round name: Always start with Round 1, then Finals
+      let roundName;
+      if (roundNumber === 1) {
+        roundName = 'Upper Round 1';
+      } else if (currentTeams.length === 2) {
+        roundName = 'Upper Finals';
+      } else {
+        roundName = `Upper Round ${roundNumber}`;
+      }
+      
+      console.log(`[Playoff] Creating ${roundName} with ${currentTeams.length} teams`);
+      
+      // Pair teams: 1vs4, 2vs3 for first round, then winners advance
+      for (let i = 0; i < currentTeams.length; i += 2) {
+        if (i + 1 < currentTeams.length) {
+          matches.push({
+            id: `upper-r${roundNumber}-m${Math.floor(i/2) + 1}`,
+            team1: currentTeams[i],
+            team2: currentTeams[i + 1],
+            status: 'pending',
+            winner: null,
+            loser: null,
+            score1: 0,
+            score2: 0,
+            roundName,
+            bracketType: 'upper',
+            dropLoserToLowerRound: roundNumber // Indicates which lower bracket round losers go to
+          });
+        }
+      }
+      
+      rounds.push({
+        round: roundNumber,
+        name: roundName,
+        matches,
+        bracketType: 'upper'
+      });
+      
+      console.log(`[Playoff] Created ${roundName} with ${matches.length} matches`);
+      
+      // Prepare for next round (winners advance)
+      currentTeams = new Array(Math.ceil(currentTeams.length / 2)).fill(null);
+      roundNumber++;
+    }
+    
+    console.log(`[Playoff] Generated ${rounds.length} upper bracket rounds:`, rounds.map(r => ({ round: r.round, name: r.name })));
+    return rounds;
+  }
+  
+  function generateLowerBracketRounds(initialTeams: Team[], upperRounds: number) {
+    const rounds = [];
+    let roundNumber = 1;
+    
+    console.log(`[Playoff] Generating lower bracket with ${initialTeams.length} initial teams and ${upperRounds} upper rounds`);
+    
+    // Lower bracket Round 1: Only if we have teams starting in lower bracket
+    if (initialTeams.length > 0) {
+      const matches = [];
+      
+      if (initialTeams.length === 1) {
+        // Single team (5th place) gets a bye and waits for upper bracket loser
+        // NO match created here - they wait in Round 2
+        console.log(`[Playoff] ${initialTeams[0].name} (5th place) will wait in Lower Round 2 for upper bracket loser`);
+      } else {
+        // Multiple teams starting in lower bracket play each other
+        for (let i = 0; i < initialTeams.length; i += 2) {
+          if (i + 1 < initialTeams.length) {
+            matches.push({
+              id: `lower-r${roundNumber}-m${Math.floor(i/2) + 1}`,
+              team1: initialTeams[i],
+              team2: initialTeams[i + 1],
+              status: 'pending',
+              winner: null,
+              loser: null,
+              score1: 0,
+              score2: 0,
+              roundName: 'Lower Round 1',
+              bracketType: 'lower'
+            });
+          }
+        }
+      }
+      
+      // Only create Round 1 if there are actual matches
+      if (matches.length > 0) {
+        rounds.push({
+          round: roundNumber,
+          name: 'Lower Round 1',
+          matches,
+          bracketType: 'lower'
+        });
+        console.log(`[Playoff] Created Lower Round 1 with ${matches.length} matches`);
+        roundNumber++;
+      }
+    }
+    
+    // Lower bracket Round 2: 5th place team vs higher-ranked upper bracket loser
+    const round2Name = `Lower Round ${roundNumber}`;
+    const round2Matches = [{
+      id: `lower-r${roundNumber}-integration-higher`,
+      team1: initialTeams.length === 1 ? initialTeams[0] : null, // 5th place team if exists
+      team2: null, // Will be filled by HIGHER-RANKED loser from upper bracket Round 1
+      status: 'pending',
+      winner: null,
+      loser: null,
+      score1: 0,
+      score2: 0,
+      roundName: round2Name,
+      bracketType: 'lower',
+      waitingForUpperRound: 1,
+      waitingForHigherRankedLoser: true, // Flag to indicate this gets the higher-ranked loser
+      description: initialTeams.length === 1 ? `${initialTeams[0].name} vs Higher-ranked Upper Bracket loser` : 'Waiting for teams'
+    }];
+    
+    rounds.push({
+      round: roundNumber,
+      name: round2Name,
+      matches: round2Matches,
+      bracketType: 'lower',
+      waitingForUpperRound: 1
+    });
+    console.log(`[Playoff] Created ${round2Name} - 5th place vs higher-ranked loser`);
+    roundNumber++;
+    
+    // Lower bracket Round 3: Winner of Round 2 vs lower-ranked upper bracket loser
+    const round3Name = `Lower Round ${roundNumber}`;
+    const round3Matches = [{
+      id: `lower-r${roundNumber}-integration-lower`,
+      team1: null, // Will be filled by winner from Lower Round 2
+      team2: null, // Will be filled by LOWER-RANKED loser from upper bracket Round 1
+      status: 'pending',
+      winner: null,
+      loser: null,
+      score1: 0,
+      score2: 0,
+      roundName: round3Name,
+      bracketType: 'lower',
+      waitingForUpperRound: 1,
+      waitingForLowerRankedLoser: true, // Flag to indicate this gets the lower-ranked loser
+      description: 'Winner of Lower Round 2 vs Lower-ranked Upper Bracket loser'
+    }];
+    
+    rounds.push({
+      round: roundNumber,
+      name: round3Name,
+      matches: round3Matches,
+      bracketType: 'lower',
+      waitingForUpperRound: 1
+    });
+    console.log(`[Playoff] Created ${round3Name} - Round 2 winner vs lower-ranked loser`);
+    roundNumber++;
+    
+    // Additional rounds for subsequent upper bracket eliminations
+    for (let upperRound = 2; upperRound <= upperRounds; upperRound++) {
+      const isLastRound = upperRound === upperRounds;
+      const roundName = isLastRound ? 'Lower Finals' : `Lower Round ${roundNumber}`;
+      
+      const matches = [{
+        id: `lower-r${roundNumber}-integration-${upperRound}`,
+        team1: null, // Will be filled by winner from previous lower round
+        team2: null, // Will be filled by loser from upper bracket
+        status: 'pending',
+        winner: null,
+        loser: null,
+        score1: 0,
+        score2: 0,
+        roundName,
+        bracketType: 'lower',
+        waitingForUpperRound: upperRound,
+        description: `Waiting for Upper Round ${upperRound} loser`
+      }];
+      
+      rounds.push({
+        round: roundNumber,
+        name: roundName,
+        matches,
+        bracketType: 'lower',
+        waitingForUpperRound: upperRound
+      });
+      
+      console.log(`[Playoff] Created ${roundName} waiting for Upper Round ${upperRound}`);
+      roundNumber++;
+    }
+    
+    console.log(`[Playoff] Generated ${rounds.length} lower bracket rounds`);
+    return rounds;
+  }
+  
+  function generateFinalsStructure() {
+    return {
+      round: 1,
+      name: 'Grand Finals',
+      matches: [{
+        id: 'grand-finals-1',
+        team1: null, // Winner of upper bracket
+        team2: null, // Winner of lower bracket
+        status: 'pending',
+        winner: null,
+        loser: null,
+        score1: 0,
+        score2: 0,
+        roundName: 'Grand Finals',
+        bracketType: 'finals',
+        // In double elimination, if lower bracket team wins, they play again
+        resetBracket: false
+      }],
+      bracketType: 'finals'
+    };
+  }
+
+  // Firebase save function for playoff tournaments - FIXED VERSION
+  async function savePlayoffTournament(tournamentData: any) {
+    try {
+      console.log('[Playoff] Saving tournament to Firebase:', tournamentData);
+      
+      // Clean the tournament data to ensure it's serializable
+      const cleanData = {
+        id: tournamentData.id,
+        teams: tournamentData.teams,
+        bracketType: tournamentData.bracketType,
+        upperBracket: tournamentData.upperBracket,
+        lowerBracket: tournamentData.lowerBracket,
+        finals: tournamentData.finals,
+        metadata: tournamentData.metadata,
+        status: tournamentData.status,
+        createdAt: tournamentData.createdAt,
+        updatedAt: new Date().toISOString()
+      };
+      
+      // Use setDoc with merge: true to create/update the document
+      const docRef = doc(db, 'tournaments', 'playoffs');
+      await setDoc(docRef, cleanData, { merge: true });
+      
+      console.log('[Playoff] ✅ Successfully saved playoff tournament to Firebase');
+      
+      // Verify the save by reading it back
+      const savedDoc = await getDoc(docRef);
+      if (savedDoc.exists()) {
+        console.log('[Playoff] ✅ Verified: Document exists in Firebase');
+      } else {
+        throw new Error('Document was not saved properly');
+      }
+      
+    } catch (error) {
+      console.error('[Playoff] ❌ Error saving playoff tournament:', error);
+      if (error instanceof Error) {
+        console.error('[Playoff] Error details:', {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
+        });
+      }
+      throw error;
+    }
+  }
+
+  // Enhanced score change handlers for double elimination
+  function handleDoubleEliminationScoreChange(matchId: string, side: 'score1' | 'score2', value: number) {
+    console.log(`[Playoff] Score change: ${matchId}, ${side} = ${value}`);
+    
+    setTournament(prev => {
+      if (!prev) return prev;
+      
+      const updated = { ...prev };
+      
+      // Update in upper bracket
+      if (updated.upperBracket) {
+        updated.upperBracket = updated.upperBracket.map(round => ({
+          ...round,
+          matches: round.matches.map(match => 
+            match.id === matchId ? { ...match, [side]: value } : match
+          )
+        }));
+      }
+      
+      // Update in lower bracket
+      if (updated.lowerBracket) {
+        updated.lowerBracket = updated.lowerBracket.map(round => ({
+          ...round,
+          matches: round.matches.map(match => 
+            match.id === matchId ? { ...match, [side]: value } : match
+          )
+        }));
+      }
+      
+      // Update in finals
+      if (updated.finals?.matches) {
+        updated.finals.matches = updated.finals.matches.map(match => 
+          match.id === matchId ? { ...match, [side]: value } : match
+        );
+      }
+      
+      return updated;
+    });
+  }
+  
+  function handleDoubleEliminationSaveScore(matchId: string) {
+    console.log(`[Playoff] Saving score for match: ${matchId}`);
+    
+    setTournament(prev => {
+      if (!prev) return prev;
+      
+      let matchToSave = null;
+      let updatedTournament = { ...prev };
+      let bracketType = '';
+      let roundNumber = 0;
+      
+      // Find the match in all brackets and determine winner/loser
+      const findAndCompleteMatch = (brackets: any[], type: string) => {
+        return brackets.map(round => ({
+          ...round,
+          matches: round.matches.map(match => {
+            if (match.id === matchId) {
+              bracketType = type;
+              roundNumber = round.round;
+              
+              // Determine winner and loser
+              const winner = match.score1 > match.score2 ? match.team1 : match.team2;
+              const loser = match.score1 > match.score2 ? match.team2 : match.team1;
+              
+              console.log(`[Playoff] 🔍 DETERMINING WINNER/LOSER:`);
+              console.log(`[Playoff] Match ID: ${match.id}`);
+              console.log(`[Playoff] Team1: ${match.team1?.name} (Score: ${match.score1})`);
+              console.log(`[Playoff] Team2: ${match.team2?.name} (Score: ${match.score2})`);
+              console.log(`[Playoff] Winner determined: ${winner?.name}`);
+              console.log(`[Playoff] Loser determined: ${loser?.name}`);
+              console.log(`[Playoff] Winner object:`, winner);
+              console.log(`[Playoff] Loser object:`, loser);
+              
+              // Create the completed match with winner/loser - THIS is what we'll use for advancement
+              const completedMatch = {
+                ...match,
+                status: 'completed',
+                winner,
+                loser
+              };
+              
+              // Save the COMPLETED match for advancement logic
+              matchToSave = completedMatch;
+              
+              return completedMatch;
+            }
+            return match;
+          })
+        }));
+      };
+      
+      // Update match in appropriate bracket
+      if (updatedTournament.upperBracket) {
+        updatedTournament.upperBracket = findAndCompleteMatch(updatedTournament.upperBracket, 'upper');
+      }
+      
+      if (updatedTournament.lowerBracket) {
+        updatedTournament.lowerBracket = findAndCompleteMatch(updatedTournament.lowerBracket, 'lower');
+      }
+      
+      if (updatedTournament.finals?.matches) {
+        updatedTournament.finals.matches = updatedTournament.finals.matches.map(match => {
+          if (match.id === matchId) {
+            bracketType = 'finals';
+            const winner = match.score1 > match.score2 ? match.team1 : match.team2;
+            const loser = match.score1 > match.score2 ? match.team2 : match.team1;
+            
+            console.log(`[Playoff] 🔍 FINALS WINNER/LOSER:`);
+            console.log(`[Playoff] Team1: ${match.team1?.name} (Score: ${match.score1})`);
+            console.log(`[Playoff] Team2: ${match.team2?.name} (Score: ${match.score2})`);
+            console.log(`[Playoff] Winner: ${winner?.name}`);
+            console.log(`[Playoff] Winner object:`, winner);
+            
+            // Create completed match for finals
+            const completedMatch = {
+              ...match,
+              status: 'completed',
+              winner,
+              loser
+            };
+            
+            // Save the COMPLETED match
+            matchToSave = completedMatch;
+            
+            return completedMatch;
+          }
+          return match;
+        });
+      }
+      
+      // Now handle automatic team progression
+      if (matchToSave && bracketType) {
+        console.log(`[Playoff] 🔍 *** MATCH COMPLETION PROCESSING ***`);
+        console.log(`[Playoff] Processing match completion in ${bracketType} bracket, round ${roundNumber}`);
+        console.log(`[Playoff] matchToSave:`, matchToSave);
+        console.log(`[Playoff] Winner: ${matchToSave.winner?.name}, Loser: ${matchToSave.loser?.name}`);
+        console.log(`[Playoff] Match status: ${matchToSave.status}`);
+        console.log(`[Playoff] Is bye match: ${matchToSave.isByeMatch}`);
+        
+        // CRITICAL: Skip processing bye matches to prevent undefined advancement issues
+        if (matchToSave.status === 'bye-completed' || matchToSave.isByeMatch) {
+          console.log(`[Playoff] ⏭️ SKIPPING bye match processing - no advancement needed`);
+          console.log(`[Playoff] Bye winner ${matchToSave.winner?.name} will advance when opponent is determined`);
+          // Don't process bye matches through normal advancement logic
+          // They will be handled when their next opponents are determined
+        }
+        // Only process REAL match completions (not bye matches)
+        else {
+          console.log(`[Playoff] Winner object:`, matchToSave.winner);
+          console.log(`[Playoff] Loser object:`, matchToSave.loser);
+          
+          if (bracketType === 'upper') {
+            // Winner advances in upper bracket, loser goes to lower bracket
+            console.log(`[Playoff] *** UPPER BRACKET MATCH COMPLETED ***`);
+            console.log(`[Playoff] Match: ${matchToSave.team1?.name} vs ${matchToSave.team2?.name}`);
+            console.log(`[Playoff] Score: ${matchToSave.score1} - ${matchToSave.score2}`);
+            console.log(`[Playoff] Winner: ${matchToSave.winner?.name}, Loser: ${matchToSave.loser?.name}`);
+            console.log(`[Playoff] Round: ${roundNumber}`);
+            console.log(`[Playoff] Tournament before upper advancement:`, {
+              upperBracket: updatedTournament.upperBracket?.length,
+              lowerBracket: updatedTournament.lowerBracket?.length
+            });
+            
+            // CRITICAL: Apply the returned tournament state
+            console.log(`[Playoff] 🔍 Step 1: Advancing winner in upper bracket...`);
+            const tournamentAfterWinnerAdvancement = advanceWinnerInUpperBracket(updatedTournament, matchToSave, roundNumber);
+            console.log(`[Playoff] 🔍 Step 2: Moving loser to lower bracket...`);
+            const tournamentAfterLoserMovement = moveLoserToLowerBracket(tournamentAfterWinnerAdvancement, matchToSave, roundNumber);
+            updatedTournament = tournamentAfterLoserMovement;
+            
+            console.log(`[Playoff] Tournament after upper advancement:`, {
+              upperBracket: updatedTournament.upperBracket?.length,
+              lowerBracket: updatedTournament.lowerBracket?.length
+            });
+            
+          } else if (bracketType === 'lower') {
+            // Winner advances in lower bracket, loser is eliminated
+            console.log(`[Playoff] *** LOWER BRACKET MATCH COMPLETED ***`);
+            console.log(`[Playoff] Match: ${matchToSave.team1?.name} vs ${matchToSave.team2?.name}`);
+            console.log(`[Playoff] Score: ${matchToSave.score1} - ${matchToSave.score2}`);
+            console.log(`[Playoff] Winner: ${matchToSave.winner?.name}, Loser: ${matchToSave.loser?.name}`);
+            console.log(`[Playoff] Round: ${roundNumber}`);
+            
+            // CRITICAL: Check if this is Lower Finals specifically
+            const currentLowerRound = updatedTournament.lowerBracket?.find(round => round.round === roundNumber);
+            const isLowerFinals = currentLowerRound?.name === 'Lower Finals';
+            const totalLowerRounds = updatedTournament.lowerBracket?.length || 0;
+            const isLastLowerRound = roundNumber === totalLowerRounds;
+            
+            console.log(`[Playoff] 🔍 LOWER BRACKET ANALYSIS:`);
+            console.log(`[Playoff] Current round name: ${currentLowerRound?.name}`);
+            console.log(`[Playoff] Is Lower Finals: ${isLowerFinals}`);
+            console.log(`[Playoff] Is last lower round: ${isLastLowerRound}`);
+            console.log(`[Playoff] Round number: ${roundNumber}, Total rounds: ${totalLowerRounds}`);
+            
+            // DIRECT LOGIC: If this is Lower Finals, send winner straight to Grand Finals
+            if (isLowerFinals || isLastLowerRound) {
+              console.log(`[Playoff] 🏆 LOWER FINALS DETECTED - SENDING WINNER DIRECTLY TO GRAND FINALS!`);
+              console.log(`[Playoff] Lower Finals champion: ${matchToSave.winner?.name}`);
+              
+              // Create winner copy for Grand Finals
+              const lowerChampion = {
+                id: matchToSave.winner.id,
+                name: matchToSave.winner.name,
+                logo: matchToSave.winner.logo,
+                wins: matchToSave.winner.wins,
+                losses: matchToSave.winner.losses,
+                points: matchToSave.winner.points,
+                goalsFor: matchToSave.winner.goalsFor,
+                goalsAgainst: matchToSave.winner.goalsAgainst,
+                goalDifference: matchToSave.winner.goalDifference
+              };
+              
+              console.log(`[Playoff] 🔍 LOWER CHAMPION COPY:`, lowerChampion);
+              
+              // Place directly in Grand Finals
+              const finals = { ...updatedTournament.finals };
+              console.log(`[Playoff] 🔍 CURRENT GRAND FINALS BEFORE LOWER PLACEMENT:`, finals.matches[0]);
+              
+              // CRITICAL: Lower Champion should go to team2 slot (Upper Champion gets team1)
+              if (finals.matches[0].team2 === null) {
+                finals.matches[0] = { ...finals.matches[0], team2: lowerChampion };
+                console.log(`[Playoff] ✅ PLACED Lower Champion ${lowerChampion.name} as team2 in Grand Finals`);
+                console.log(`[Playoff] 🔍 UPDATED GRAND FINALS:`, finals.matches[0]);
+              } else {
+                console.error(`[Playoff] ❌ ERROR: Grand Finals team2 slot already filled!`);
+                console.error(`[Playoff] Current team2:`, finals.matches[0].team2);
+                console.error(`[Playoff] Trying to place:`, lowerChampion);
+                
+                // Check if both slots have the same team (duplication bug)
+                if (finals.matches[0].team1?.id === finals.matches[0].team2?.id) {
+                  console.error(`[Playoff] ❌ CRITICAL BUG: Same team in both Grand Finals slots!`);
+                  console.error(`[Playoff] team1:`, finals.matches[0].team1);
+                  console.error(`[Playoff] team2:`, finals.matches[0].team2);
+                  
+                  // Fix: Clear team2 and place Lower Champion
+                  finals.matches[0] = { ...finals.matches[0], team2: lowerChampion };
+                  console.log(`[Playoff] 🔧 FIXED: Replaced duplicate team2 with Lower Champion ${lowerChampion.name}`);
+                  console.log(`[Playoff] 🔍 CORRECTED GRAND FINALS:`, finals.matches[0]);
+                }
+              }
+              
+              // Update tournament with new finals
+              updatedTournament = { ...updatedTournament, finals };
+              
+            } else {
+              // Regular lower bracket advancement (not finals)
+              console.log(`[Playoff] Tournament before lower advancement:`, {
+                lowerBracket: updatedTournament.lowerBracket?.length,
+                finals: updatedTournament.finals?.matches?.[0]
+              });
+              
+              // CRITICAL: Apply the returned tournament state
+              console.log(`[Playoff] 🔍 Step 1: Advancing winner in lower bracket...`);
+              const tournamentAfterAdvancement = advanceWinnerInLowerBracket(updatedTournament, matchToSave, roundNumber);
+              updatedTournament = tournamentAfterAdvancement;
+              
+              console.log(`[Playoff] Tournament after lower advancement:`, {
+                lowerBracket: updatedTournament.lowerBracket?.length,
+                finals: updatedTournament.finals?.matches?.[0]
+              });
+            }
+            
+          } else if (bracketType === 'finals') {
+            // Tournament complete or reset bracket
+            console.log(`[Playoff] *** FINALS COMPLETED ***`);
+            console.log(`[Playoff] Tournament completed! Champion: ${matchToSave.winner?.name}`);
+          }
+        }
+        
+        // Additional check: Process any automatic advancements after each match
+        const { tournament: processedTournament, hasChanges } = processAutoAdvancements(updatedTournament);
+        if (hasChanges) {
+          console.log('[Playoff] Processed additional automatic advancements after match completion');
+          updatedTournament = processedTournament;
+        }
+        
+        // CRITICAL: Check for completed bye matches that need advancement after opponent placement
+        updatedTournament = processCompletedByeAdvancements(updatedTournament);
+      }
+      
+      // Save to Firebase
+      if (matchToSave) {
+        savePlayoffTournament(updatedTournament).catch(error => {
+          console.error('Error saving playoff match:', error);
+          toast.error('Failed to save match result. Please try again.', { autoClose: 3000 });
+        });
+        
+        const resultMessage = bracketType === 'finals' 
+          ? `🏆 CHAMPION: ${matchToSave.winner?.name}! Final: ${matchToSave.score1}-${matchToSave.score2}`
+          : `Match result saved: ${matchToSave.score1} - ${matchToSave.score2}. ${matchToSave.winner?.name} advances!`;
+        
+        toast.success(resultMessage, { autoClose: 4000 });
+      }
+      
+      return updatedTournament;
+    });
+  }
+  
+  // Function to advance winner in upper bracket - ENHANCED WITH DEBUGGING TO PREVENT UNDEFINED TEAMS
+  function advanceWinnerInUpperBracket(tournament: any, completedMatch: any, fromRound: number) {
+    const nextRound = fromRound + 1;
+    let upperBracket = [...tournament.upperBracket];
+    
+    console.log(`[Playoff] *** UPPER BRACKET ADVANCEMENT ***`);
+    console.log(`[Playoff] 🔍 INPUT VALIDATION:`);
+    console.log(`[Playoff] completedMatch:`, completedMatch);
+    console.log(`[Playoff] completedMatch.winner:`, completedMatch.winner);
+    console.log(`[Playoff] completedMatch.winner?.name:`, completedMatch.winner?.name);
+    console.log(`[Playoff] fromRound:`, fromRound);
+    console.log(`[Playoff] nextRound:`, nextRound);
+    
+    // CRITICAL: Validate that we have a winner
+    if (!completedMatch.winner) {
+      console.error(`[Playoff] ❌ CRITICAL ERROR: No winner found in completedMatch!`);
+      console.error(`[Playoff] completedMatch:`, completedMatch);
+      return tournament; // Return unchanged if no winner
+    }
+    
+    console.log(`[Playoff] Advancing ${completedMatch.winner?.name} from Upper Round ${fromRound} to Round ${nextRound}`);
+    console.log(`[Playoff] Current upper bracket structure:`, upperBracket.map(r => ({ 
+      round: r.round, 
+      name: r.name, 
+      matches: r.matches.map(m => ({ 
+        id: m.id, 
+        team1: m.team1?.name || 'NULL', 
+        team2: m.team2?.name || 'NULL',
+        status: m.status 
+      }))
+    })));
+    
+    // Find next round in upper bracket
+    const nextRoundIndex = upperBracket.findIndex(round => round.round === nextRound);
+    console.log(`[Playoff] Looking for Upper Round ${nextRound}, found at index: ${nextRoundIndex}`);
+    
+    if (nextRoundIndex !== -1) {
+      // Place winner in next upper bracket match
+      const targetRound = { ...upperBracket[nextRoundIndex] };
+      let targetMatches = [...targetRound.matches];
+      
+      console.log(`[Playoff] Target upper round matches before update:`, targetMatches.map(m => ({ 
+        id: m.id, 
+        team1: m.team1?.name || 'NULL', 
+        team2: m.team2?.name || 'NULL' 
+      })));
+      
+      // CRITICAL: Create a deep copy of the winner to prevent reference issues
+      const winnerCopy = {
+        id: completedMatch.winner.id,
+        name: completedMatch.winner.name,
+        logo: completedMatch.winner.logo,
+        wins: completedMatch.winner.wins,
+        losses: completedMatch.winner.losses,
+        points: completedMatch.winner.points,
+        goalsFor: completedMatch.winner.goalsFor,
+        goalsAgainst: completedMatch.winner.goalsAgainst,
+        goalDifference: completedMatch.winner.goalDifference
+      };
+      
+      console.log(`[Playoff] 🔍 WINNER COPY CREATED:`, winnerCopy);
+      
+      // Find the appropriate match slot (based on seeding)
+      let placed = false;
+      for (let i = 0; i < targetMatches.length; i++) {
+        const match = targetMatches[i];
+        if (match.team1 === null) {
+          // Place winner as team1
+          targetMatches[i] = { 
+            ...match, 
+            team1: winnerCopy
+          };
+          placed = true;
+          console.log(`[Playoff] ✅ PLACED ${winnerCopy.name} as team1 in upper match ${match.id}`);
+          console.log(`[Playoff] 🔍 UPDATED MATCH:`, targetMatches[i]);
+          break;
+        } else if (match.team2 === null) {
+          // Place winner as team2
+          targetMatches[i] = { 
+            ...match, 
+            team2: winnerCopy
+          };
+          placed = true;
+          console.log(`[Playoff] ✅ PLACED ${winnerCopy.name} as team2 in upper match ${match.id}`);
+          console.log(`[Playoff] 🔍 UPDATED MATCH:`, targetMatches[i]);
+          break;
+        }
+      }
+      
+      if (!placed) {
+        console.error(`[Playoff] ❌ FAILED TO PLACE ${completedMatch.winner?.name} in Upper Round ${nextRound} - no empty slots`);
+        return tournament; // Return unchanged if placement fails
+      }
+      
+      upperBracket[nextRoundIndex] = {
+        ...targetRound,
+        matches: targetMatches
+      };
+      
+      console.log(`[Playoff] ✅ SUCCESSFULLY advanced ${completedMatch.winner?.name} to Upper Round ${nextRound} (${targetRound.name})`);
+      console.log(`[Playoff] Updated upper round:`, upperBracket[nextRoundIndex].matches.map(m => ({ 
+        id: m.id, 
+        team1: m.team1?.name || 'NULL', 
+        team2: m.team2?.name || 'NULL' 
+      })));
+      
+      return { ...tournament, upperBracket };
+      
+    } else {
+      // ONLY finals winners should go to grand finals, not round 1 winners
+      const currentRoundName = upperBracket.find(r => r.round === fromRound)?.name || `Round ${fromRound}`;
+      
+      if (currentRoundName === 'Upper Finals') {
+        // This is the finals winner - advance to grand finals
+        console.log(`[Playoff] Upper Finals winner ${completedMatch.winner?.name} advancing to Grand Finals`);
+        
+        // CRITICAL: Create a deep copy of the winner to prevent reference issues
+        const upperChampion = {
+          id: completedMatch.winner.id,
+          name: completedMatch.winner.name,
+          logo: completedMatch.winner.logo,
+          wins: completedMatch.winner.wins,
+          losses: completedMatch.winner.losses,
+          points: completedMatch.winner.points,
+          goalsFor: completedMatch.winner.goalsFor,
+          goalsAgainst: completedMatch.winner.goalsAgainst,
+          goalDifference: completedMatch.winner.goalDifference
+        };
+        
+        console.log(`[Playoff] 🔍 UPPER CHAMPION COPY:`, upperChampion);
+        
+        const finals = { ...tournament.finals };
+        console.log(`[Playoff] 🔍 CURRENT GRAND FINALS BEFORE UPPER PLACEMENT:`, finals.matches[0]);
+        
+        // CRITICAL: Always place Upper Champion as team1 (they earned the advantage)
+        if (finals.matches[0].team1 === null) {
+          finals.matches[0] = { ...finals.matches[0], team1: upperChampion };
+          console.log(`[Playoff] ✅ Advanced Upper Champion ${upperChampion.name} to Grand Finals as team1`);
+          console.log(`[Playoff] 🔍 UPDATED GRAND FINALS:`, finals.matches[0]);
+        } else {
+          console.error(`[Playoff] ❌ ERROR: Grand Finals team1 slot already filled!`);
+          console.error(`[Playoff] Current team1:`, finals.matches[0].team1);
+          console.error(`[Playoff] Trying to place:`, upperChampion);
+        }
+        
+        return { ...tournament, upperBracket, finals };
+      } else {
+        // This is NOT a finals match - should not go directly to grand finals
+        console.error(`[Playoff] ❌ ERROR: ${completedMatch.winner?.name} from ${currentRoundName} should NOT go directly to Grand Finals!`);
+        console.error(`[Playoff] Current round: ${currentRoundName}, From round: ${fromRound}`);
+        console.error(`[Playoff] Available upper rounds:`, upperBracket.map(r => ({ round: r.round, name: r.name })));
+        
+        // Return unchanged tournament to prevent incorrect advancement
+        return tournament;
+      }
+    }
+  }
+  
+  // Function to move loser to lower bracket - FIXED FOR PROPER RANKING LOGIC
+  function moveLoserToLowerBracket(tournament: any, completedMatch: any, fromUpperRound: number) {
+    const lowerBracket = [...tournament.lowerBracket];
+    const qualified = tournament.metadata.qualified;
+    
+    console.log(`[Playoff] Moving ${completedMatch.loser?.name} from Upper Round ${fromUpperRound} to Lower Bracket`);
+    
+    // Determine the ranking of the losing team
+    const loserRanking = qualified.findIndex(team => team.id === completedMatch.loser?.id) + 1;
+    console.log(`[Playoff] ${completedMatch.loser?.name} was ranked #${loserRanking} in regular season`);
+    
+    if (fromUpperRound === 1) {
+      // Upper bracket Round 1 losers need special handling based on ranking
+      // We need to determine who is the higher-ranked and lower-ranked loser
+      
+      // Find all Upper Round 1 matches that are completed
+      const upperRound1 = tournament.upperBracket.find(round => round.round === 1);
+      const completedMatches = upperRound1?.matches.filter(m => m.status === 'completed') || [];
+      
+      console.log(`[Playoff] Found ${completedMatches.length} completed Upper Round 1 matches`);
+      
+      if (completedMatches.length === 1) {
+        // First loser - determine if they should go to Round 2 or Round 3
+        const isHigherRanked = loserRanking <= 2; // Top 2 teams are considered higher-ranked
+        
+        if (isHigherRanked) {
+          // Higher-ranked loser goes to Lower Round 2 (faces 5th place team)
+          const round2Index = lowerBracket.findIndex(round => 
+            round.matches.some(m => m.waitingForHigherRankedLoser)
+          );
+          
+          if (round2Index !== -1) {
+            const round2 = { ...lowerBracket[round2Index] };
+            const matches = round2.matches.map(match => {
+              if (match.waitingForHigherRankedLoser && match.team2 === null) {
+                console.log(`[Playoff] Placing higher-ranked loser ${completedMatch.loser?.name} in Lower Round 2`);
+                return { ...match, team2: completedMatch.loser };
+              }
+              return match;
+            });
+            lowerBracket[round2Index] = { ...round2, matches };
+          }
+        } else {
+          // Lower-ranked loser waits for Round 3
+          console.log(`[Playoff] Lower-ranked loser ${completedMatch.loser?.name} will wait for Lower Round 3`);
+          // We'll place them when the second match completes
+        }
+      } else if (completedMatches.length === 2) {
+        // Second loser - place in Round 3 OR place both losers correctly
+        const allLosers = completedMatches.map(m => m.loser).filter(Boolean);
+        const loserRankings = allLosers.map(loser => ({
+          team: loser,
+          ranking: qualified.findIndex(team => team.id === loser.id) + 1
+        }));
+        
+        // Sort by ranking to determine higher vs lower
+        loserRankings.sort((a, b) => a.ranking - b.ranking);
+        const higherRankedLoser = loserRankings[0]?.team;
+        const lowerRankedLoser = loserRankings[1]?.team;
+        
+        console.log(`[Playoff] Losers by ranking: Higher=${higherRankedLoser?.name}(#${loserRankings[0]?.ranking}), Lower=${lowerRankedLoser?.name}(#${loserRankings[1]?.ranking})`);
+        
+        // Place higher-ranked loser in Round 2 if not already placed
+        const round2Index = lowerBracket.findIndex(round => 
+          round.matches.some(m => m.waitingForHigherRankedLoser)
+        );
+        
+        if (round2Index !== -1) {
+          const round2 = { ...lowerBracket[round2Index] };
+          const matches = round2.matches.map(match => {
+            if (match.waitingForHigherRankedLoser && match.team2 === null) {
+              console.log(`[Playoff] Placing higher-ranked loser ${higherRankedLoser?.name} in Lower Round 2`);
+              return { ...match, team2: higherRankedLoser };
+            }
+            return match;
+          });
+          lowerBracket[round2Index] = { ...round2, matches };
+        }
+        
+        // Place lower-ranked loser in Round 3
+        const round3Index = lowerBracket.findIndex(round => 
+          round.matches.some(m => m.waitingForLowerRankedLoser)
+        );
+        
+        if (round3Index !== -1) {
+          const round3 = { ...lowerBracket[round3Index] };
+          const matches = round3.matches.map(match => {
+            if (match.waitingForLowerRankedLoser && match.team2 === null) {
+              console.log(`[Playoff] Placing lower-ranked loser ${lowerRankedLoser?.name} in Lower Round 3`);
+              return { ...match, team2: lowerRankedLoser };
+            }
+            return match;
+          });
+          lowerBracket[round3Index] = { ...round3, matches };
+        }
+      }
+    } else {
+      // For losers from later upper bracket rounds, use the existing logic
+      const targetRoundIndex = lowerBracket.findIndex(round => 
+        round.waitingForUpperRound === fromUpperRound
+      );
+      
+      if (targetRoundIndex !== -1) {
+        const targetRound = { ...lowerBracket[targetRoundIndex] };
+        const matches = targetRound.matches.map(match => {
+          if (match.team2 === null) {
+            console.log(`[Playoff] Placing ${completedMatch.loser?.name} in ${targetRound.name}`);
+            return { ...match, team2: completedMatch.loser };
+          }
+          return match;
+        });
+        lowerBracket[targetRoundIndex] = { ...targetRound, matches };
+      }
+    }
+    
+    return { ...tournament, lowerBracket };
+  }
+  
+  // Function to advance winner in lower bracket - ENHANCED WITH DEBUGGING TO PREVENT UNDEFINED TEAMS
+  function advanceWinnerInLowerBracket(tournament: any, completedMatch: any, fromRound: number) {
+    const nextRound = fromRound + 1;
+    let lowerBracket = [...tournament.lowerBracket];
+    
+    console.log(`[Playoff] *** LOWER BRACKET ADVANCEMENT ***`);
+    console.log(`[Playoff] 🔍 INPUT VALIDATION:`);
+    console.log(`[Playoff] completedMatch:`, completedMatch);
+    console.log(`[Playoff] completedMatch.winner:`, completedMatch.winner);
+    console.log(`[Playoff] completedMatch.winner?.name:`, completedMatch.winner?.name);
+    console.log(`[Playoff] fromRound:`, fromRound);
+    console.log(`[Playoff] nextRound:`, nextRound);
+    
+    // CRITICAL: Check if this is the Lower Finals
+    const currentRound = lowerBracket.find(round => round.round === fromRound);
+    const isLowerFinals = currentRound?.name === 'Lower Finals';
+    const totalLowerRounds = lowerBracket.length;
+    const isLastLowerRound = fromRound === totalLowerRounds;
+    
+    console.log(`[Playoff] 🔍 ROUND ANALYSIS:`);
+    console.log(`[Playoff] Current round name: ${currentRound?.name}`);
+    console.log(`[Playoff] Is Lower Finals: ${isLowerFinals}`);
+    console.log(`[Playoff] Is last lower round: ${isLastLowerRound}`);
+    console.log(`[Playoff] Total lower rounds: ${totalLowerRounds}`);
+    console.log(`[Playoff] All lower rounds:`, lowerBracket.map(r => ({round: r.round, name: r.name})));
+    
+    // CRITICAL: Validate that we have a winner
+    if (!completedMatch.winner) {
+      console.error(`[Playoff] ❌ CRITICAL ERROR: No winner found in completedMatch!`);
+      console.error(`[Playoff] completedMatch:`, completedMatch);
+      return tournament; // Return unchanged if no winner
+    }
+    
+    console.log(`[Playoff] Advancing ${completedMatch.winner?.name} from Lower Round ${fromRound} to Round ${nextRound}`);
+    console.log(`[Playoff] Current lower bracket rounds:`, lowerBracket.map(r => ({ round: r.round, name: r.name })));
+    
+    // ENHANCED: Check for Lower Finals specifically
+    if (isLowerFinals || isLastLowerRound) {
+      console.log(`[Playoff] 🏆 LOWER FINALS COMPLETED - advancing winner to Grand Finals!`);
+      console.log(`[Playoff] Lower Finals winner: ${completedMatch.winner?.name}`);
+      
+      // CRITICAL: Create a deep copy of the winner for finals
+      const winnerCopy = {
+        id: completedMatch.winner.id,
+        name: completedMatch.winner.name,
+        logo: completedMatch.winner.logo,
+        wins: completedMatch.winner.wins,
+        losses: completedMatch.winner.losses,
+        points: completedMatch.winner.points,
+        goalsFor: completedMatch.winner.goalsFor,
+        goalsAgainst: completedMatch.winner.goalsAgainst,
+        goalDifference: completedMatch.winner.goalDifference
+      };
+      
+      console.log(`[Playoff] 🔍 LOWER FINALS WINNER COPY:`, winnerCopy);
+      
+      const finals = { ...tournament.finals };
+      console.log(`[Playoff] 🔍 CURRENT FINALS STRUCTURE:`, finals);
+      
+      if (finals.matches[0].team1 === null) {
+        finals.matches[0] = { ...finals.matches[0], team1: winnerCopy };
+        console.log(`[Playoff] ✅ Advanced ${winnerCopy.name} to Grand Finals as team1`);
+        console.log(`[Playoff] 🔍 UPDATED FINALS MATCH:`, finals.matches[0]);
+      } else if (finals.matches[0].team2 === null) {
+        finals.matches[0] = { ...finals.matches[0], team2: winnerCopy };
+        console.log(`[Playoff] ✅ Advanced ${winnerCopy.name} to Grand Finals as team2`);
+        console.log(`[Playoff] 🔍 UPDATED FINALS MATCH:`, finals.matches[0]);
+      } else {
+        console.error(`[Playoff] ❌ ERROR: Both Grand Finals slots are already filled!`);
+        console.error(`[Playoff] Current finals:`, finals.matches[0]);
+      }
+      
+      return { ...tournament, lowerBracket, finals };
+    }
+    
+    // Find next round in lower bracket
+    const nextRoundIndex = lowerBracket.findIndex(round => round.round === nextRound);
+    console.log(`[Playoff] Looking for round ${nextRound}, found at index: ${nextRoundIndex}`);
+    
+    if (nextRoundIndex !== -1) {
+      // Place winner in next lower bracket match
+      const targetRound = { ...lowerBracket[nextRoundIndex] };
+      let targetMatches = [...targetRound.matches];
+      
+      console.log(`[Playoff] Target round matches before update:`, targetMatches.map(m => ({ 
+        id: m.id, 
+        team1: m.team1?.name || 'NULL', 
+        team2: m.team2?.name || 'NULL',
+        status: m.status
+      })));
+      
+      // CRITICAL: Create a deep copy of the winner to prevent reference issues
+      const winnerCopy = {
+        id: completedMatch.winner.id,
+        name: completedMatch.winner.name,
+        logo: completedMatch.winner.logo,
+        wins: completedMatch.winner.wins,
+        losses: completedMatch.winner.losses,
+        points: completedMatch.winner.points,
+        goalsFor: completedMatch.winner.goalsFor,
+        goalsAgainst: completedMatch.winner.goalsAgainst,
+        goalDifference: completedMatch.winner.goalDifference
+      };
+      
+      console.log(`[Playoff] 🔍 WINNER COPY CREATED:`, winnerCopy);
+      
+      // Find first available slot in next round
+      let placed = false;
+      for (let i = 0; i < targetMatches.length; i++) {
+        const match = targetMatches[i];
+        if (match.team1 === null) {
+          // Place winner as team1
+          targetMatches[i] = { 
+            ...match, 
+            team1: winnerCopy
+          };
+          placed = true;
+          console.log(`[Playoff] ✅ PLACED ${winnerCopy.name} as team1 in match ${match.id}`);
+          console.log(`[Playoff] 🔍 UPDATED MATCH:`, targetMatches[i]);
+          break;
+        } else if (match.team2 === null) {
+          // Place winner as team2
+          targetMatches[i] = { 
+            ...match, 
+            team2: winnerCopy
+          };
+          placed = true;
+          console.log(`[Playoff] ✅ PLACED ${winnerCopy.name} as team2 in match ${match.id}`);
+          console.log(`[Playoff] 🔍 UPDATED MATCH:`, targetMatches[i]);
+          break;
+        }
+      }
+      
+      if (!placed) {
+        console.error(`[Playoff] ❌ FAILED TO PLACE ${completedMatch.winner?.name} in Lower Round ${nextRound} - no empty slots`);
+        return tournament; // Return unchanged if placement fails
+      }
+      
+      // Update the lower bracket with the new match data
+      lowerBracket[nextRoundIndex] = {
+        ...targetRound,
+        matches: targetMatches
+      };
+      
+      console.log(`[Playoff] ✅ SUCCESSFULLY advanced ${completedMatch.winner?.name} to Lower Round ${nextRound}`);
+      console.log(`[Playoff] Updated match:`, targetMatches.map(m => ({ 
+        id: m.id, 
+        team1: m.team1?.name || 'NULL', 
+        team2: m.team2?.name || 'NULL'
+      })));
+      
+      // Return updated tournament
+      return { ...tournament, lowerBracket };
+      
+    } else {
+      // No next lower bracket round - winner goes to grand finals
+      console.log(`[Playoff] 🏆 No Lower Round ${nextRound} found - advancing ${completedMatch.winner?.name} to Grand Finals`);
+      
+      // CRITICAL: Create a deep copy of the winner for finals
+      const winnerCopy = {
+        id: completedMatch.winner.id,
+        name: completedMatch.winner.name,
+        logo: completedMatch.winner.logo,
+        wins: completedMatch.winner.wins,
+        losses: completedMatch.winner.losses,
+        points: completedMatch.winner.points,
+        goalsFor: completedMatch.winner.goalsFor,
+        goalsAgainst: completedMatch.winner.goalsAgainst,
+        goalDifference: completedMatch.winner.goalDifference
+      };
+      
+      console.log(`[Playoff] 🔍 FINALS WINNER COPY:`, winnerCopy);
+      
+      const finals = { ...tournament.finals };
+      console.log(`[Playoff] 🔍 CURRENT FINALS STRUCTURE:`, finals);
+      
+      if (finals.matches[0].team1 === null) {
+        finals.matches[0] = { ...finals.matches[0], team1: winnerCopy };
+        console.log(`[Playoff] ✅ Advanced ${winnerCopy.name} to Grand Finals as team1`);
+        console.log(`[Playoff] 🔍 FINALS MATCH:`, finals.matches[0]);
+      } else if (finals.matches[0].team2 === null) {
+        finals.matches[0] = { ...finals.matches[0], team2: winnerCopy };
+        console.log(`[Playoff] ✅ Advanced ${winnerCopy.name} to Grand Finals as team2`);
+        console.log(`[Playoff] 🔍 FINALS MATCH:`, finals.matches[0]);
+      } else {
+        console.error(`[Playoff] ❌ ERROR: Both Grand Finals slots are already filled!`);
+        console.error(`[Playoff] Current finals:`, finals.matches[0]);
+      }
+      
+      return { ...tournament, lowerBracket, finals };
+    }
+  }
+  
+  // Function to process bye matches that are ready for advancement
+  function processCompletedByeAdvancements(tournament: any) {
+    let updated = { ...tournament };
+    let hasAdvancement = false;
+    
+    console.log('[Playoff] 🔍 Checking for bye matches ready for advancement...');
+    
+    // Check lower bracket for bye matches with determined opponents
+    if (updated.lowerBracket) {
+      for (let roundIndex = 0; roundIndex < updated.lowerBracket.length; roundIndex++) {
+        const round = updated.lowerBracket[roundIndex];
+        
+        for (let matchIndex = 0; matchIndex < round.matches.length; matchIndex++) {
+          const match = round.matches[matchIndex];
+          
+          // Check if this is a completed bye match where both teams are now present
+          if (match.status === 'bye-completed' && match.isByeMatch && match.team1 && match.team2) {
+            console.log(`[Playoff] 🏆 Bye match ${match.id} now has both teams - advancing bye winner`);
+            console.log(`[Playoff] Bye winner: ${match.winner?.name}, Opponent: ${match.team2?.name}`);
+            
+            // The bye winner should advance to next round since they "won" their bye
+            const byeWinnerMatch = {
+              ...match,
+              status: 'completed', // Convert to regular completed match
+              // Winner stays the same (the bye winner)
+              // Team2 was just placed, so now it's a real match to be played
+            };
+            
+            // Advance the bye winner using normal advancement logic
+            console.log(`[Playoff] 🚀 Advancing bye winner ${match.winner?.name} using normal logic`);
+            updated = advanceWinnerInLowerBracket(updated, byeWinnerMatch, round.round);
+            hasAdvancement = true;
+            
+            // Mark the original match as needing a reset since both teams should play
+            updated.lowerBracket[roundIndex].matches[matchIndex] = {
+              ...match,
+              status: 'pending', // Reset to pending so teams can actually play
+              winner: null, // Clear winner so teams can play properly
+              score1: 0,
+              score2: 0,
+              isByeMatch: false // No longer a bye match
+            };
+            
+            console.log(`[Playoff] 🔄 Reset match ${match.id} to pending for actual gameplay`);
+          }
+        }
+      }
+    }
+    
+    if (hasAdvancement) {
+      console.log('[Playoff] ✅ Processed bye advancements successfully');
+    } else {
+      console.log('[Playoff] 📊 No bye advancements needed');
+    }
+    
+    return updated;
+  }
+  function processAutoAdvancements(tournament: any) {
+    let updated = { ...tournament };
+    let hasChanges = false;
+    
+    console.log('[Playoff] 🔍 Processing automatic advancements...');
+    
+    // Process lower bracket bye advancements
+    if (updated.lowerBracket) {
+      updated.lowerBracket = updated.lowerBracket.map((round, roundIndex) => {
+        const updatedMatches = round.matches.map(match => {
+          
+          // CRITICAL: Only auto-complete ACTUAL bye matches (where team2 will NEVER be filled)
+          // Don't auto-complete matches where team2 might be filled by upper bracket losers
+          if (match.team1 && match.team2 === null && match.status === 'pending') {
+            
+            // Check if this is a TRUE bye match (not waiting for an opponent)
+            const isTrueBye = !match.waitingForHigherRankedLoser && 
+                             !match.waitingForLowerRankedLoser && 
+                             !round.waitingForUpperRound;
+            
+            if (isTrueBye) {
+              console.log(`[Playoff] ✅ Auto-completing TRUE bye match for ${match.team1.name}`);
+              console.log(`[Playoff] Match ID: ${match.id}, Round: ${round.name}`);
+              
+              // Create a proper completed match with winner
+              const completedByeMatch = {
+                ...match,
+                status: 'bye-completed', // Special status to distinguish from regular completed matches
+                winner: {
+                  id: match.team1.id,
+                  name: match.team1.name,
+                  logo: match.team1.logo,
+                  wins: match.team1.wins,
+                  losses: match.team1.losses,
+                  points: match.team1.points,
+                  goalsFor: match.team1.goalsFor,
+                  goalsAgainst: match.team1.goalsAgainst,
+                  goalDifference: match.team1.goalDifference
+                },
+                score1: 1,
+                score2: 0,
+                isByeMatch: true // Flag to identify bye matches
+              };
+              
+              hasChanges = true;
+              return completedByeMatch;
+            } else {
+              console.log(`[Playoff] ⏸️ Skipping auto-completion for ${match.team1.name} - waiting for opponent`);
+              console.log(`[Playoff] Match ID: ${match.id}, Waiting flags:`, {
+                waitingForHigherRankedLoser: match.waitingForHigherRankedLoser,
+                waitingForLowerRankedLoser: match.waitingForLowerRankedLoser,
+                waitingForUpperRound: round.waitingForUpperRound
+              });
+            }
+          }
+          
+          // Don't process already completed bye matches to avoid infinite loops
+          else if (match.status === 'bye-completed' && match.isByeMatch) {
+            console.log(`[Playoff] 📋 Bye match already completed: ${match.winner?.name}`);
+            // Don't mark hasChanges for already processed bye matches
+          }
+          
+          return match;
+        });
+        return { ...round, matches: updatedMatches };
+      });
+    }
+    
+    console.log(`[Playoff] 🔍 Auto-advancement processing complete. Changes detected: ${hasChanges}`);
+    return { tournament: updated, hasChanges };
+  }
+
   function handleGeneratePlayoffBracket() {
     if (playoffSize < 2 || playoffSize > teams.length) {
       setPlayoffError('Invalid number of playoff teams');
@@ -615,49 +1833,53 @@ const BracketPage: React.FC<BracketPageProps> = ({
     }
     
     setPlayoffError(null);
-    const sorted = [...teams].sort((a, b) => b.points - a.points);
-    const qualified = sorted.slice(0, playoffSize);
-    const matches = [];
     
-    for (let i = 0; i < playoffSize / 2; i++) {
-      matches.push({
-        team1: qualified[i],
-        team2: qualified[playoffSize - 1 - i],
-        status: 'pending',
-        winner: null,
-        score1: 0,
-        score2: 0,
+    try {
+      // Generate double elimination bracket
+      const bracketStructure = generateDoubleEliminationBracket(teams, playoffSize);
+      
+      // Create new tournament structure
+      const newPlayoffTournament = {
+        id: 'playoffs',
+        teams: bracketStructure.metadata.qualified,
+        rounds: [], // Will be populated with bracket structure
+        bracketType: 'double-elimination',
+        upperBracket: bracketStructure.upperBracket,
+        lowerBracket: bracketStructure.lowerBracket,
+        finals: bracketStructure.finals,
+        metadata: bracketStructure.metadata,
+        status: 'active',
+        createdAt: new Date().toISOString(),
+      };
+      
+      // Process any automatic advancements (like bye matches)
+      const { tournament: processedTournament, hasChanges } = processAutoAdvancements(newPlayoffTournament);
+      if (hasChanges) {
+        console.log('[Playoff] Processed automatic advancements after bracket generation');
+      }
+      
+      setTournament(processedTournament);
+      
+      // Save to Firebase using setDoc
+      savePlayoffTournament(processedTournament).catch(error => {
+        console.error('Error saving playoff tournament to Firebase:', error);
+        toast.error('Failed to save playoff bracket. Please try again.', { autoClose: 3000 });
       });
+      
+      toast.success(`Double elimination playoff bracket generated with ${playoffSize} teams!`, { autoClose: 3000 });
+      
+    } catch (error) {
+      console.error('Error generating playoff bracket:', error);
+      setPlayoffError('Failed to generate playoff bracket');
+      toast.error('Failed to generate playoff bracket. Please try again.', { autoClose: 3000 });
     }
-    
-    const newPlayoffTournament = {
-      id: 'playoffs',
-      teams: qualified,
-      rounds: [matches],
-      status: 'active',
-      createdAt: new Date().toISOString(),
-    };
-    
-    setTournament(newPlayoffTournament);
-    
-    // Save playoff tournament to Firebase
-    updateTournament('playoffs', {
-      teams: newPlayoffTournament.teams,
-      rounds: newPlayoffTournament.rounds,
-      status: 'active' as 'active' | 'completed'
-    }).catch(error => {
-      console.error('Error saving playoff tournament to Firebase:', error);
-      toast.error('Failed to save playoff bracket. Please try again.', { autoClose: 3000 });
-    });
-    
-    toast.success(`Playoff bracket generated with ${playoffSize} teams!`, { autoClose: 3000 });
   }
 
   function handleResetPlayoffBracket() {
     setTournament(null);
     
-    // Clear playoff tournament from Firebase
-    updateTournament('playoffs', null).catch(error => {
+    // Clear playoff tournament from Firebase using deleteDoc
+    deleteDoc(doc(db, 'tournaments', 'playoffs')).catch(error => {
       console.error('Error clearing playoff tournament from Firebase:', error);
     });
     
@@ -940,6 +2162,9 @@ const BracketPage: React.FC<BracketPageProps> = ({
             totalWeeks={totalWeeks}
             availableWeeks={availableWeeks}
             fixtures={fixtures}
+            setPlayoffSize={setPlayoffSize}
+            handleDoubleEliminationScoreChange={handleDoubleEliminationScoreChange}
+            handleDoubleEliminationSaveScore={handleDoubleEliminationSaveScore}
           />
         )}
       </div>
