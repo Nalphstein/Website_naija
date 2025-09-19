@@ -684,22 +684,66 @@ const BracketPage: React.FC<BracketPageProps> = ({
       
       console.log(`[Playoff] Creating ${roundName} with ${currentTeams.length} teams`);
       
-      // Pair teams: 1vs4, 2vs3 for first round, then winners advance
-      for (let i = 0; i < currentTeams.length; i += 2) {
-        if (i + 1 < currentTeams.length) {
-          matches.push({
-            id: `upper-r${roundNumber}-m${Math.floor(i/2) + 1}`,
-            team1: currentTeams[i],
-            team2: currentTeams[i + 1],
-            status: 'pending',
-            winner: null,
-            loser: null,
-            score1: 0,
-            score2: 0,
-            roundName,
-            bracketType: 'upper',
-            dropLoserToLowerRound: roundNumber // Indicates which lower bracket round losers go to
-          });
+      // Pair teams properly for first round: 1st vs 3rd, 2nd vs 4th
+      if (roundNumber === 1 && currentTeams.length === 4) {
+        // Special pairing for 4-team upper bracket: 1st vs 3rd, 2nd vs 4th
+        console.log(`[Playoff] Applying user seeding: 1st vs 3rd, 2nd vs 4th`);
+        console.log(`[Playoff] Teams order: 1st(${currentTeams[0]?.name}), 2nd(${currentTeams[1]?.name}), 3rd(${currentTeams[2]?.name}), 4th(${currentTeams[3]?.name})`);
+        
+        // Match 1: 1st vs 3rd
+        matches.push({
+          id: `upper-r${roundNumber}-m1`,
+          team1: currentTeams[0], // 1st place
+          team2: currentTeams[2], // 3rd place
+          status: 'pending',
+          winner: null,
+          loser: null,
+          score1: 0,
+          score2: 0,
+          roundName,
+          bracketType: 'upper',
+          dropLoserToLowerRound: roundNumber,
+          matchDescription: `${currentTeams[0]?.name} (1st) vs ${currentTeams[2]?.name} (3rd)`
+        });
+        
+        // Match 2: 2nd vs 4th
+        matches.push({
+          id: `upper-r${roundNumber}-m2`,
+          team1: currentTeams[1], // 2nd place
+          team2: currentTeams[3], // 4th place
+          status: 'pending',
+          winner: null,
+          loser: null,
+          score1: 0,
+          score2: 0,
+          roundName,
+          bracketType: 'upper',
+          dropLoserToLowerRound: roundNumber,
+          matchDescription: `${currentTeams[1]?.name} (2nd) vs ${currentTeams[3]?.name} (4th)`
+        });
+        
+        console.log(`[Playoff] ✅ Created matches with user seeding:`);
+        console.log(`[Playoff] Match 1: ${currentTeams[0]?.name} (1st) vs ${currentTeams[2]?.name} (3rd)`);
+        console.log(`[Playoff] Match 2: ${currentTeams[1]?.name} (2nd) vs ${currentTeams[3]?.name} (4th)`);
+        
+      } else {
+        // For other rounds or team counts, use sequential pairing
+        for (let i = 0; i < currentTeams.length; i += 2) {
+          if (i + 1 < currentTeams.length) {
+            matches.push({
+              id: `upper-r${roundNumber}-m${Math.floor(i/2) + 1}`,
+              team1: currentTeams[i],
+              team2: currentTeams[i + 1],
+              status: 'pending',
+              winner: null,
+              loser: null,
+              score1: 0,
+              score2: 0,
+              roundName,
+              bracketType: 'upper',
+              dropLoserToLowerRound: roundNumber
+            });
+          }
         }
       }
       
@@ -1385,7 +1429,7 @@ const BracketPage: React.FC<BracketPageProps> = ({
     }
   }
   
-  // Function to move loser to lower bracket - FIXED FOR PROPER RANKING LOGIC
+  // Function to move loser to lower bracket - ENHANCED WITH PROPER RANKING PROGRESSION
   function moveLoserToLowerBracket(tournament: any, completedMatch: any, fromUpperRound: number) {
     const lowerBracket = [...tournament.lowerBracket];
     const qualified = tournament.metadata.qualified;
@@ -1398,29 +1442,46 @@ const BracketPage: React.FC<BracketPageProps> = ({
     
     if (fromUpperRound === 1) {
       // Upper bracket Round 1 losers need special handling based on ranking
-      // We need to determine who is the higher-ranked and lower-ranked loser
+      // RULE: Lower-ranked teams face 5th place first, higher-ranked teams wait
       
       // Find all Upper Round 1 matches that are completed
       const upperRound1 = tournament.upperBracket.find(round => round.round === 1);
       const completedMatches = upperRound1?.matches.filter(m => m.status === 'completed') || [];
       
       console.log(`[Playoff] Found ${completedMatches.length} completed Upper Round 1 matches`);
+      console.log(`[Playoff] 🔍 RANKING LOGIC: Lower-ranked teams face 5th place first`);
       
+      // Get all losers and their rankings
+      const allLosers = completedMatches.map(m => m.loser).filter(Boolean);
+      const loserRankings = allLosers.map(loser => ({
+        team: loser,
+        ranking: qualified.findIndex(team => team.id === loser.id) + 1
+      }));
+      
+      // Sort by ranking (ascending - lower numbers = higher rank)
+      loserRankings.sort((a, b) => a.ranking - b.ranking);
+      
+      console.log(`[Playoff] All losers by ranking:`, loserRankings.map(l => `${l.team.name}(#${l.ranking})`));
+      
+      // ENHANCED LOGIC: Progressive placement based on elimination order
       if (completedMatches.length === 1) {
-        // First loser - determine if they should go to Round 2 or Round 3
-        const isHigherRanked = loserRanking <= 2; // Top 2 teams are considered higher-ranked
+        // First loser gets placed based on their ranking
+        console.log(`[Playoff] First loser: ${completedMatch.loser?.name} (Rank #${loserRanking})`);
         
-        if (isHigherRanked) {
-          // Higher-ranked loser goes to Lower Round 2 (faces 5th place team)
+        // CRITICAL: Lower-ranked teams (3rd, 4th) face 5th place immediately
+        // Higher-ranked teams (1st, 2nd) wait for later rounds
+        if (loserRanking >= 3) {
+          // 3rd or 4th place loser - faces 5th place in Round 2
+          console.log(`[Playoff] 🔄 Lower-ranked team (Rank #${loserRanking}) faces 5th place first`);
           const round2Index = lowerBracket.findIndex(round => 
-            round.matches.some(m => m.waitingForHigherRankedLoser)
+            round.matches.some(m => m.waitingForHigherRankedLoser || m.team1?.name === qualified[4]?.name)
           );
           
           if (round2Index !== -1) {
             const round2 = { ...lowerBracket[round2Index] };
             const matches = round2.matches.map(match => {
-              if (match.waitingForHigherRankedLoser && match.team2 === null) {
-                console.log(`[Playoff] Placing higher-ranked loser ${completedMatch.loser?.name} in Lower Round 2`);
+              if (match.team2 === null && (match.waitingForHigherRankedLoser || match.team1?.name === qualified[4]?.name)) {
+                console.log(`[Playoff] ✅ Placing ${completedMatch.loser?.name} vs 5th place in Lower Round 2`);
                 return { ...match, team2: completedMatch.loser };
               }
               return match;
@@ -1428,43 +1489,40 @@ const BracketPage: React.FC<BracketPageProps> = ({
             lowerBracket[round2Index] = { ...round2, matches };
           }
         } else {
-          // Lower-ranked loser waits for Round 3
-          console.log(`[Playoff] Lower-ranked loser ${completedMatch.loser?.name} will wait for Lower Round 3`);
-          // We'll place them when the second match completes
+          // 1st or 2nd place loser - waits for Round 3 (faces winner of Round 2)
+          console.log(`[Playoff] 🚀 Higher-ranked team (Rank #${loserRanking}) waits for Round 3`);
+          // Will be placed when second match completes
         }
+        
       } else if (completedMatches.length === 2) {
-        // Second loser - place in Round 3 OR place both losers correctly
-        const allLosers = completedMatches.map(m => m.loser).filter(Boolean);
-        const loserRankings = allLosers.map(loser => ({
-          team: loser,
-          ranking: qualified.findIndex(team => team.id === loser.id) + 1
-        }));
+        // Both matches completed - place remaining losers correctly
+        console.log(`[Playoff] Both upper matches completed - finalizing lower bracket placement`);
         
-        // Sort by ranking to determine higher vs lower
-        loserRankings.sort((a, b) => a.ranking - b.ranking);
-        const higherRankedLoser = loserRankings[0]?.team;
-        const lowerRankedLoser = loserRankings[1]?.team;
+        // CRITICAL: Ensure proper ordering - lowest rank faces 5th first
+        const lowestRankedLoser = loserRankings[loserRankings.length - 1]?.team; // Highest ranking number = lowest rank
+        const highestRankedLoser = loserRankings[0]?.team; // Lowest ranking number = highest rank
         
-        console.log(`[Playoff] Losers by ranking: Higher=${higherRankedLoser?.name}(#${loserRankings[0]?.ranking}), Lower=${lowerRankedLoser?.name}(#${loserRankings[1]?.ranking})`);
+        console.log(`[Playoff] Lowest ranked loser: ${lowestRankedLoser?.name} (faces 5th place)`);
+        console.log(`[Playoff] Highest ranked loser: ${highestRankedLoser?.name} (waits for Round 3)`);
         
-        // Place higher-ranked loser in Round 2 if not already placed
+        // Place lowest-ranked loser vs 5th place in Round 2
         const round2Index = lowerBracket.findIndex(round => 
-          round.matches.some(m => m.waitingForHigherRankedLoser)
+          round.matches.some(m => m.waitingForHigherRankedLoser || m.team1?.name === qualified[4]?.name)
         );
         
         if (round2Index !== -1) {
           const round2 = { ...lowerBracket[round2Index] };
           const matches = round2.matches.map(match => {
-            if (match.waitingForHigherRankedLoser && match.team2 === null) {
-              console.log(`[Playoff] Placing higher-ranked loser ${higherRankedLoser?.name} in Lower Round 2`);
-              return { ...match, team2: higherRankedLoser };
+            if (match.team2 === null && (match.waitingForHigherRankedLoser || match.team1?.name === qualified[4]?.name)) {
+              console.log(`[Playoff] ✅ Placing lowest-ranked loser ${lowestRankedLoser?.name} vs 5th place`);
+              return { ...match, team2: lowestRankedLoser };
             }
             return match;
           });
           lowerBracket[round2Index] = { ...round2, matches };
         }
         
-        // Place lower-ranked loser in Round 3
+        // Place highest-ranked loser in Round 3 (faces winner of Round 2)
         const round3Index = lowerBracket.findIndex(round => 
           round.matches.some(m => m.waitingForLowerRankedLoser)
         );
@@ -1473,8 +1531,8 @@ const BracketPage: React.FC<BracketPageProps> = ({
           const round3 = { ...lowerBracket[round3Index] };
           const matches = round3.matches.map(match => {
             if (match.waitingForLowerRankedLoser && match.team2 === null) {
-              console.log(`[Playoff] Placing lower-ranked loser ${lowerRankedLoser?.name} in Lower Round 3`);
-              return { ...match, team2: lowerRankedLoser };
+              console.log(`[Playoff] ✅ Placing highest-ranked loser ${highestRankedLoser?.name} in Round 3`);
+              return { ...match, team2: highestRankedLoser };
             }
             return match;
           });
