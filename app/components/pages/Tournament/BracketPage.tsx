@@ -176,7 +176,7 @@ const BracketPage: React.FC<BracketPageProps> = ({
     return false;
   };
   
- // 1. Update your useEffect to load fixtures without tournament dependency 
+ // Enhanced useEffect to load both regular and playoff tournament data
  useEffect(() => { 
    const loadTournamentData = async (): Promise<void> => { 
      console.log('[BracketPage] Loading tournament data...'); 
@@ -187,21 +187,42 @@ const BracketPage: React.FC<BracketPageProps> = ({
        // Check for duplicate team IDs 
        checkForDuplicateTeamIds(); 
        
-       // Load tournament data if available (optional) 
-       let tournamentData = null; 
-       if (tournament?.id) { 
+       // PRIORITY 1: Check for playoff tournament first
+       let tournamentData = null;
+       let tournamentSource = 'none';
+       
+       try {
+         const playoffTournament = await getTournament('playoffs');
+         if (playoffTournament) {
+           console.log('[BracketPage] ✅ Found playoff tournament in Firebase:', playoffTournament);
+           tournamentData = playoffTournament;
+           tournamentSource = 'playoffs';
+           
+           // Set the tournament immediately to restore playoff bracket
+           setTournament(playoffTournament);
+           toast.success('Playoff bracket loaded from Firebase!', { autoClose: 3000 });
+         }
+       } catch (playoffError) {
+         console.log('[BracketPage] No playoff tournament found:', playoffError);
+       }
+       
+       // PRIORITY 2: If no playoff tournament, try regular tournament
+       if (!tournamentData && tournament?.id) { 
          try { 
            tournamentData = await getTournament(tournament.id); 
-           console.log("Loaded tournament from Firebase:", tournamentData); 
+           console.log('[BracketPage] Loaded regular tournament from Firebase:', tournamentData);
+           tournamentSource = 'regular';
          } catch (tournamentError) { 
-           console.warn("Could not load tournament, but continuing with fixtures:", tournamentError); 
+           console.warn('[BracketPage] Could not load regular tournament:', tournamentError); 
          } 
-       } 
+       }
+       
+       console.log(`[BracketPage] Tournament source: ${tournamentSource}`);
        
        // Load fixture scores - NO tournament dependency 
        console.log('[BracketPage] Loading fixture scores (tournament-independent)...'); 
        const scores = await getFixtureScores(); // No tournament ID required! 
-       console.log("Loaded scores from Firebase:", scores);
+       console.log('[BracketPage] Loaded scores from Firebase:', scores);
         
        // Mark loaded scores as completed 
        const scoresWithCompletion = Object.keys(scores).reduce((acc, key) => { 
@@ -255,6 +276,31 @@ const BracketPage: React.FC<BracketPageProps> = ({
     
     loadTournamentData();
   }, [fixtures.length, totalWeeks]); // Removed tournament?.id dependency
+  
+  // Additional useEffect to check for playoff tournament when switching to playoffs tab
+  useEffect(() => {
+    const loadPlayoffTournamentIfNeeded = async () => {
+      // Only run when switching to playoffs tab and no tournament is loaded
+      if (tab === 'playoffs' && !tournament) {
+        console.log('[BracketPage] Switching to playoffs tab - checking for saved playoff tournament...');
+        
+        try {
+          const playoffTournament = await getTournament('playoffs');
+          if (playoffTournament) {
+            console.log('[BracketPage] ✅ Found saved playoff tournament:', playoffTournament);
+            setTournament(playoffTournament);
+            toast.success('Playoff bracket restored from Firebase!', { autoClose: 3000 });
+          } else {
+            console.log('[BracketPage] No saved playoff tournament found');
+          }
+        } catch (error) {
+          console.log('[BracketPage] Error checking for playoff tournament:', error);
+        }
+      }
+    };
+    
+    loadPlayoffTournamentIfNeeded();
+  }, [tab, tournament]); // Run when tab changes or tournament state changes
   
   // Show loading state while data is being fetched
   if (!scoresLoaded) {
@@ -926,13 +972,46 @@ const BracketPage: React.FC<BracketPageProps> = ({
     };
   }
 
-  // Firebase save function for playoff tournaments - FIXED VERSION
+  // Firebase save function for playoff tournaments - ENHANCED VERSION WITH UNDEFINED CLEANING
   async function savePlayoffTournament(tournamentData: any) {
     try {
       console.log('[Playoff] Saving tournament to Firebase:', tournamentData);
       
-      // Clean the tournament data to ensure it's serializable
-      const cleanData = {
+      // Helper function to recursively clean objects, removing undefined values
+      function cleanObjectRecursively(obj: any): any {
+        if (obj === null || obj === undefined) {
+          return null;
+        }
+        
+        if (typeof obj !== 'object') {
+          return obj;
+        }
+        
+        if (Array.isArray(obj)) {
+          return obj
+            .filter(item => item !== undefined) // Remove undefined items
+            .map(item => cleanObjectRecursively(item));
+        }
+        
+        const cleaned: any = {};
+        
+        for (const [key, value] of Object.entries(obj)) {
+          if (value === undefined) {
+            // Skip undefined values entirely
+            console.log(`[Playoff] Skipping undefined value for key: ${key}`);
+            continue;
+          } else if (value === null) {
+            cleaned[key] = null;
+          } else {
+            cleaned[key] = cleanObjectRecursively(value);
+          }
+        }
+        
+        return cleaned;
+      }
+      
+      // Clean the tournament data to ensure it's serializable and has no undefined values
+      const rawCleanData = {
         id: tournamentData.id,
         teams: tournamentData.teams,
         bracketType: tournamentData.bracketType,
@@ -945,6 +1024,38 @@ const BracketPage: React.FC<BracketPageProps> = ({
         updatedAt: new Date().toISOString()
       };
       
+      console.log('[Playoff] Pre-cleaning data structure:', {
+        upperBracketRounds: rawCleanData.upperBracket?.length,
+        lowerBracketRounds: rawCleanData.lowerBracket?.length,
+        finalsMatches: rawCleanData.finals?.matches?.length,
+        teamsCount: rawCleanData.teams?.length
+      });
+      
+      // Apply deep cleaning to remove any undefined values
+      const cleanData = cleanObjectRecursively(rawCleanData);
+      
+      console.log('[Playoff] Post-cleaning data structure:', {
+        upperBracketRounds: cleanData.upperBracket?.length,
+        lowerBracketRounds: cleanData.lowerBracket?.length,
+        finalsMatches: cleanData.finals?.matches?.length,
+        teamsCount: cleanData.teams?.length
+      });
+      
+      // Additional validation: check for any remaining undefined values
+      try {
+        const testSerialization = JSON.stringify(cleanData, (key, value) => {
+          if (value === undefined) {
+            console.error(`[Playoff] ❌ FOUND UNDEFINED VALUE at key: ${key}`);
+            throw new Error(`Undefined value found at key: ${key}`);
+          }
+          return value;
+        });
+        console.log(`[Playoff] ✅ Data serialization test passed (${testSerialization.length} chars)`);
+      } catch (error) {
+        console.error(`[Playoff] ❌ Serialization failed:`, error);
+        throw error;
+      }
+      
       // Use setDoc with merge: true to create/update the document
       const docRef = doc(db, 'tournaments', 'playoffs');
       await setDoc(docRef, cleanData, { merge: true });
@@ -955,6 +1066,13 @@ const BracketPage: React.FC<BracketPageProps> = ({
       const savedDoc = await getDoc(docRef);
       if (savedDoc.exists()) {
         console.log('[Playoff] ✅ Verified: Document exists in Firebase');
+        const verificationData = savedDoc.data();
+        console.log('[Playoff] Verification data structure:', {
+          hasUpperBracket: !!verificationData.upperBracket,
+          hasLowerBracket: !!verificationData.lowerBracket,
+          hasFinals: !!verificationData.finals,
+          bracketType: verificationData.bracketType
+        });
       } else {
         throw new Error('Document was not saved properly');
       }

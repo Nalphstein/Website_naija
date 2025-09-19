@@ -115,7 +115,58 @@ export async function getCurrentTournament(): Promise<TournamentType | null> {
   return getTournament(currentId);
 }
 
-// Helper function to clean tournament data for Firestore
+// Helper function to detect and log undefined values in tournament data
+function detectUndefinedValues(obj: any, path: string = ''): string[] {
+  const undefinedPaths: string[] = [];
+  
+  if (obj === undefined) {
+    undefinedPaths.push(path || 'root');
+    return undefinedPaths;
+  }
+  
+  if (obj === null || typeof obj !== 'object') {
+    return undefinedPaths;
+  }
+  
+  if (Array.isArray(obj)) {
+    obj.forEach((item, index) => {
+      const itemPath = path ? `${path}[${index}]` : `[${index}]`;
+      undefinedPaths.push(...detectUndefinedValues(item, itemPath));
+    });
+  } else {
+    Object.entries(obj).forEach(([key, value]) => {
+      const newPath = path ? `${path}.${key}` : key;
+      if (value === undefined) {
+        undefinedPaths.push(newPath);
+      } else {
+        undefinedPaths.push(...detectUndefinedValues(value, newPath));
+      }
+    });
+  }
+  
+  return undefinedPaths;
+}
+
+// Validate tournament data before Firebase operations
+function validateTournamentData(data: any, operationName: string): boolean {
+  console.log(`[tournamentService] Validating data for ${operationName}`);
+  
+  // Check for undefined values
+  const undefinedPaths = detectUndefinedValues(data);
+  
+  if (undefinedPaths.length > 0) {
+    console.error(`[tournamentService] ❌ UNDEFINED VALUES DETECTED in ${operationName}:`);
+    undefinedPaths.forEach(path => {
+      console.error(`  - undefined at: ${path}`);
+    });
+    return false;
+  }
+  
+  console.log(`[tournamentService] ✅ Data validation passed for ${operationName}`);
+  return true;
+}
+
+// Helper function to recursively clean tournament data for Firestore
 function cleanTournamentData(updates: Partial<Omit<TournamentType, 'id' | 'createdAt'>>): Record<string, any> {
   const cleaned: Record<string, any> = {};
   
@@ -132,12 +183,11 @@ function cleanTournamentData(updates: Partial<Omit<TournamentType, 'id' | 'creat
       continue;
     }
     
-    // Handle arrays - ensure they're properly serializable
+    // Handle arrays - recursively clean them
     if (Array.isArray(value)) {
       try {
-        // Test if the array can be JSON serialized (catches circular references, etc.)
-        JSON.stringify(value);
-        cleaned[key] = value;
+        const cleanedArray = cleanArrayRecursively(value);
+        cleaned[key] = cleanedArray;
       } catch (error) {
         console.error(`[tournamentService] Cannot serialize array for key ${key}:`, error);
         // Skip this field or provide a default
@@ -145,9 +195,8 @@ function cleanTournamentData(updates: Partial<Omit<TournamentType, 'id' | 'creat
       }
     } else if (typeof value === 'object') {
       try {
-        // Test if the object can be JSON serialized
-        JSON.stringify(value);
-        cleaned[key] = value;
+        const cleanedObject = cleanObjectRecursively(value);
+        cleaned[key] = cleanedObject;
       } catch (error) {
         console.error(`[tournamentService] Cannot serialize object for key ${key}:`, error);
         continue;
@@ -161,6 +210,57 @@ function cleanTournamentData(updates: Partial<Omit<TournamentType, 'id' | 'creat
   return cleaned;
 }
 
+// Helper function to recursively clean objects, removing undefined values
+function cleanObjectRecursively(obj: any): any {
+  if (obj === null || obj === undefined) {
+    return null;
+  }
+  
+  if (typeof obj !== 'object') {
+    return obj;
+  }
+  
+  if (Array.isArray(obj)) {
+    return cleanArrayRecursively(obj);
+  }
+  
+  const cleaned: any = {};
+  
+  for (const [key, value] of Object.entries(obj)) {
+    if (value === undefined) {
+      // Skip undefined values entirely
+      continue;
+    } else if (value === null) {
+      cleaned[key] = null;
+    } else if (Array.isArray(value)) {
+      cleaned[key] = cleanArrayRecursively(value);
+    } else if (typeof value === 'object') {
+      cleaned[key] = cleanObjectRecursively(value);
+    } else {
+      cleaned[key] = value;
+    }
+  }
+  
+  return cleaned;
+}
+
+// Helper function to recursively clean arrays, removing undefined values
+function cleanArrayRecursively(arr: any[]): any[] {
+  return arr
+    .filter(item => item !== undefined) // Remove undefined items
+    .map(item => {
+      if (item === null) {
+        return null;
+      } else if (Array.isArray(item)) {
+        return cleanArrayRecursively(item);
+      } else if (typeof item === 'object') {
+        return cleanObjectRecursively(item);
+      } else {
+        return item;
+      }
+    });
+}
+
 // Update tournament with better error handling - FIXED to use setDoc
 export async function updateTournament(id: string, updates: Partial<Omit<TournamentType, 'id' | 'createdAt'>>): Promise<void> {
   try {
@@ -169,6 +269,11 @@ export async function updateTournament(id: string, updates: Partial<Omit<Tournam
     // Validate tournament ID
     if (!id || typeof id !== 'string') {
       throw new Error(`Invalid tournament ID: ${id}`);
+    }
+    
+    // Validate input data for undefined values before cleaning
+    if (!validateTournamentData(updates, `updateTournament(${id})`)) {
+      console.warn(`[tournamentService] Data contains undefined values, attempting to clean...`);
     }
     
     // Clean the updates data
@@ -188,6 +293,11 @@ export async function updateTournament(id: string, updates: Partial<Omit<Tournam
     };
     
     console.log(`[tournamentService] Final updates to apply:`, finalUpdates);
+    
+    // Final validation before Firebase call
+    if (!validateTournamentData(finalUpdates, `final updateTournament(${id})`)) {
+      throw new Error('Data still contains undefined values after cleaning');
+    }
     
     const docRef = doc(db, 'tournaments', id);
     
@@ -245,9 +355,10 @@ export async function completeTournament(id: string): Promise<void> {
 export async function savePlayoffTournament(playoffData: any): Promise<void> {
   try {
     console.log(`[tournamentService] Saving playoff tournament with bracket data`);
+    console.log(`[tournamentService] Raw playoff data:`, playoffData);
     
-    // Clean and validate playoff tournament data
-    const cleanPlayoffData = {
+    // Clean and validate playoff tournament data with recursive undefined removal
+    const rawCleanPlayoffData = {
       id: playoffData.id || 'playoffs',
       teams: playoffData.teams || [],
       bracketType: playoffData.bracketType || 'double-elimination',
@@ -260,13 +371,37 @@ export async function savePlayoffTournament(playoffData: any): Promise<void> {
       updatedAt: new Date().toISOString()
     };
     
-    // Ensure all bracket data is serializable
-    try {
-      JSON.stringify(cleanPlayoffData);
-    } catch (error) {
-      console.error(`[tournamentService] Playoff data is not serializable:`, error);
-      throw new Error('Playoff tournament data contains non-serializable content');
+    console.log(`[tournamentService] Pre-cleaning data:`, rawCleanPlayoffData);
+    
+    // Apply deep cleaning to remove any undefined values recursively
+    const cleanPlayoffData = cleanObjectRecursively(rawCleanPlayoffData);
+    
+    console.log(`[tournamentService] Post-cleaning data:`, cleanPlayoffData);
+    
+    // Validate cleaned data for undefined values
+    if (!validateTournamentData(cleanPlayoffData, 'savePlayoffTournament')) {
+      throw new Error('Playoff data still contains undefined values after cleaning');
     }
+    
+    // Additional validation: ensure all bracket data is serializable
+    try {
+      const testSerialization = JSON.stringify(cleanPlayoffData);
+      console.log(`[tournamentService] ✅ Data serialization test passed (${testSerialization.length} chars)`);
+    } catch (error) {
+      console.error(`[tournamentService] ❌ Playoff data is not serializable after cleaning:`, error);
+      throw new Error('Playoff tournament data contains non-serializable content after cleaning');
+    }
+    
+    // Check for any remaining undefined values
+    const undefinedCheck = JSON.stringify(cleanPlayoffData, (key, value) => {
+      if (value === undefined) {
+        console.error(`[tournamentService] ❌ FOUND UNDEFINED VALUE at key: ${key}`);
+        throw new Error(`Undefined value found at key: ${key}`);
+      }
+      return value;
+    });
+    
+    console.log(`[tournamentService] ✅ No undefined values found in cleaned data`);
     
     const docRef = doc(db, 'tournaments', 'playoffs');
     

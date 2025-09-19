@@ -55,13 +55,46 @@ export const TournamentSection = () => {
     const loadInitialData = async () => {
       try {
         setLoading(true);
-        // Always fetch the tournament with a known ID
-        const savedTournament = await getTournament('current');
+        
+        // Load teams first
         const loadedTeams = await getAllTeams();
         setTeams(loadedTeams || []);
-        if (savedTournament) {
-          setTournament(savedTournament);
+        
+        // Try to load both regular tournament and playoff tournament
+        console.log('[TournamentSection] Loading tournament data...');
+        
+        // First try to load playoff tournament
+        let tournamentFound = false;
+        try {
+          const playoffTournament = await getTournament('playoffs');
+          if (playoffTournament) {
+            console.log('[TournamentSection] ✅ Loaded playoff tournament:', playoffTournament);
+            setTournament(playoffTournament);
+            tournamentFound = true;
+          }
+        } catch (playoffError) {
+          console.log('[TournamentSection] No playoff tournament found:', playoffError);
         }
+        
+        // If no playoff tournament, try regular tournament
+        if (!tournamentFound) {
+          try {
+            const savedTournament = await getTournament('current');
+            if (savedTournament) {
+              console.log('[TournamentSection] ✅ Loaded regular tournament:', savedTournament);
+              setTournament(savedTournament);
+              tournamentFound = true;
+            }
+          } catch (regularError) {
+            console.log('[TournamentSection] No regular tournament found:', regularError);
+          }
+        }
+        
+        if (!tournamentFound) {
+          console.log('[TournamentSection] No tournament data found - starting fresh');
+          setTournament(null);
+        }
+        
       } catch (error) {
         console.error('Error loading data:', error);
         setTeams([]);
@@ -80,7 +113,28 @@ export const TournamentSection = () => {
       const saveCurrentTournament = async () => {
         try {
           if (tournament.id) {
-            await updateTournament(tournament.id, tournament);
+            // Clean tournament data before saving to remove any undefined values
+            const cleanTournament = {
+              ...tournament,
+              // Ensure all required fields have default values
+              teams: tournament.teams || [],
+              rounds: tournament.rounds || [],
+              status: tournament.status || 'active',
+              currentWeek: tournament.currentWeek || 1,
+              // Remove undefined properties
+              upperBracket: tournament.upperBracket,
+              lowerBracket: tournament.lowerBracket,
+              finals: tournament.finals,
+              metadata: tournament.metadata
+            };
+            
+            // Filter out undefined values
+            const filteredTournament = Object.fromEntries(
+              Object.entries(cleanTournament).filter(([_, value]) => value !== undefined)
+            );
+            
+            console.log('[TournamentSection] Saving tournament with cleaned data:', filteredTournament);
+            await updateTournament(tournament.id, filteredTournament);
           } 
         } catch (error) {
           console.error('Error saving tournament:', error);

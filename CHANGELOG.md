@@ -5,6 +5,96 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.1.4] - 2025-01-19
+
+### 🔄 **CRITICAL: Playoff Bracket Persistence Issue - RESOLVED**
+
+**Problem**: Playoff brackets were being saved to Firebase successfully but not persisting on page reload - they would disappear and not stay visible until manually reset.
+
+**Root Cause**: Tournament loading logic was only checking for regular tournament data (ID: 'current') but playoff tournaments are saved with a different document ID ('playoffs'). The system wasn't checking for playoff tournament data during page initialization.
+
+**Solution Implemented**:
+- **Enhanced TournamentSection Loading**: Modified `useEffect` to check for both playoff ('playoffs') and regular ('current') tournament data
+- **Priority Loading System**: Playoff tournaments take priority over regular tournaments during page load
+- **BracketPage Integration**: Added dedicated `useEffect` to restore playoff tournaments when switching to playoffs tab
+- **Dual-Check System**: Both components now check for saved playoff data independently
+
+**Files Modified**:
+- `app/Pages/TournamentSection.tsx` - Enhanced tournament loading with playoff priority
+- `app/components/pages/Tournament/BracketPage.tsx` - Added playoff-specific loading logic
+
+**Technical Details**:
+```typescript
+// Before: Only checked for regular tournament
+const savedTournament = await getTournament('current');
+
+// After: Checks for playoff tournament first, then regular
+try {
+  const playoffTournament = await getTournament('playoffs');
+  if (playoffTournament) setTournament(playoffTournament);
+} catch {
+  const regularTournament = await getTournament('current');
+  if (regularTournament) setTournament(regularTournament);
+}
+```
+
+**Impact**:
+- ✅ **Playoff brackets now persist** correctly across page refreshes
+- ✅ **Tournament state restoration** works seamlessly 
+- ✅ **No data loss** when navigating away and returning
+- ✅ **Proper loading priority** ensures playoff tournaments are restored first
+- ✅ **Enhanced user experience** with automatic restoration notifications
+
+**User Experience**:
+- Playoff brackets now remain visible after page reload
+- Success toast notification when playoff bracket is restored
+- Seamless transition between regular and playoff tournament modes
+- No need to regenerate brackets after browser refresh
+
+---
+
+## [v2.1.3] - 2025-01-19
+
+### 🚨 **CRITICAL: Firebase Undefined Values Bug - RESOLVED**
+
+**Problem**: Firebase was rejecting tournament data with `FirebaseError: Function setDoc() called with invalid data. Unsupported field value: undefined`
+
+**Root Cause**: Tournament objects contained `undefined` values in nested structures (team objects, bracket arrays, match properties) which Firebase Firestore explicitly rejects.
+
+**Solution Implemented**: 
+- **Enhanced Data Cleaning**: Added recursive `cleanObjectRecursively()` and `cleanArrayRecursively()` functions that traverse entire data structures
+- **Validation System**: Created `detectUndefinedValues()` to identify exact paths where undefined values exist
+- **Preprocessing**: All tournament data is now cleaned before any Firebase operations
+- **Verification**: Added validation checks that detect and log undefined values with precise location paths
+
+**Files Modified**:
+- `app/services/tournamentService.ts` - Enhanced with recursive cleaning and validation
+- `app/components/pages/Tournament/BracketPage.tsx` - Added undefined cleaning to local save function
+- `app/Pages/TournamentSection.tsx` - Added data filtering before tournament updates
+
+**Technical Details**:
+```typescript
+// Before: Data contained undefined values
+{
+  team1: { name: "Team A", score: undefined },  // ❌ Firebase rejects
+  upperBracket: [undefined, match1, match2]      // ❌ Firebase rejects
+}
+
+// After: All undefined values cleaned/removed
+{
+  team1: { name: "Team A" },                     // ✅ Firebase accepts
+  upperBracket: [match1, match2]                 // ✅ Firebase accepts
+}
+```
+
+**Impact**: 
+- ✅ Playoff brackets now save successfully to Firebase
+- ✅ No more "invalid data" errors during tournament operations
+- ✅ Tournament state persists correctly across page refreshes
+- ✅ All bracket advancement now works without Firebase rejections
+
+---
+
 ## [v2.1.2] - 2025-01-05
 
 ### 🏆 **Lower Bracket Ranking Progression - FIXED**
